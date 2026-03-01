@@ -290,4 +290,169 @@ describeIfEnv('supabase rpc/rls integration', () => {
     expect(outsiderRead.error).toBeNull()
     expect((outsiderRead.data ?? []).length).toBe(0)
   }, 60_000)
+
+  it('validates rpc_start_set position assignments on set 2 and persists set snapshots', async () => {
+    const owner = await createAuthedUser('owner-start-set')
+    const memberA = await createAuthedUser('member-start-a')
+    const memberB = await createAuthedUser('member-start-b')
+    const memberC = await createAuthedUser('member-start-c')
+
+    const groupId = await createGroupByOwner(owner)
+    await inviteAndAccept(owner, memberA, groupId)
+    await inviteAndAccept(owner, memberB, groupId)
+    await inviteAndAccept(owner, memberC, groupId)
+
+    const { data: meetingRow, error: meetingError } = await owner.client
+      .from('meetings')
+      .insert({
+        group_id: groupId,
+        title: 'integration-start-set',
+        date: '2026-03-01',
+        start_time: '20:00',
+        status: 'in_progress',
+        created_by: owner.id,
+      })
+      .select('id')
+      .single()
+
+    if (meetingError || !meetingRow) {
+      throw new Error(meetingError?.message ?? 'failed to create meeting')
+    }
+
+    const { data: matchId, error: matchError } = await owner.client.rpc('rpc_create_match', {
+      payload: {
+        groupId,
+        meetingId: meetingRow.id,
+        format: 'best_of_3',
+        teamSize: 2,
+        targetScore: 5,
+        deuce: false,
+        firstServingTeamIndex: 0,
+        teams: [
+          {
+            name: 'A팀',
+            playerIds: [owner.id, memberA.id],
+          },
+          {
+            name: 'B팀',
+            playerIds: [memberB.id, memberC.id],
+          },
+        ],
+      },
+    })
+
+    if (matchError || !matchId) {
+      throw new Error(matchError?.message ?? 'failed to create match')
+    }
+
+    const { data: setRows, error: setRowsError } = await owner.client
+      .from('sets')
+      .select('id, set_no, status, team_a_id, team_b_id')
+      .eq('match_id', String(matchId))
+      .order('set_no', { ascending: true })
+
+    if (setRowsError || !setRows || setRows.length < 2) {
+      throw new Error(setRowsError?.message ?? 'failed to fetch sets')
+    }
+
+    const set1 = setRows.find((row) => Number(row.set_no) === 1)
+    const set2 = setRows.find((row) => Number(row.set_no) === 2)
+    if (!set1 || !set2) {
+      throw new Error('required sets were not created')
+    }
+
+    for (let index = 0; index < 5; index += 1) {
+      const rally = await owner.client.rpc('rpc_record_rally', {
+        set_id: String(set1.id),
+        scoring_team_id: String(set1.team_a_id),
+        client_event_id: `rpc-start-${Date.now()}-${index}`,
+        occurred_at: new Date(Date.now() + index).toISOString(),
+      })
+
+      expect(rally.error).toBeNull()
+    }
+
+    const { data: set1After, error: set1AfterError } = await owner.client
+      .from('sets')
+      .select('status')
+      .eq('id', String(set1.id))
+      .single()
+
+    expect(set1AfterError).toBeNull()
+    expect(set1After?.status).toBe('completed')
+
+    const missingAssignments = await owner.client.rpc('rpc_start_set', {
+      match_id: String(matchId),
+      set_no: 2,
+      first_serving_team_id: String(set2.team_a_id),
+      position_assignments: null,
+    })
+
+    expect(missingAssignments.error).toBeTruthy()
+
+    const invalidAssignments = await owner.client.rpc('rpc_start_set', {
+      match_id: String(matchId),
+      set_no: 2,
+      first_serving_team_id: String(set2.team_a_id),
+      position_assignments: {
+        teamA: [
+          { profileId: owner.id, positionNo: 1 },
+          { profileId: memberA.id, positionNo: 1 },
+        ],
+        teamB: [
+          { profileId: memberB.id, positionNo: 1 },
+          { profileId: memberC.id, positionNo: 2 },
+        ],
+      },
+    })
+
+    expect(invalidAssignments.error).toBeTruthy()
+
+    const { data: playerRows, error: playerRowsError } = await owner.client
+      .from('match_players')
+      .select('team_id, profile_id, position_no')
+      .eq('match_id', String(matchId))
+
+    if (playerRowsError || !playerRows) {
+      throw new Error(playerRowsError?.message ?? 'failed to fetch players')
+    }
+
+    const validAssignments = {
+      teamA: playerRows
+        .filter((row) => String(row.team_id) === String(set2.team_a_id))
+        .sort((left, right) => Number(left.position_no) - Number(right.position_no))
+        .map((row) => ({ profileId: String(row.profile_id), positionNo: Number(row.position_no) })),
+      teamB: playerRows
+        .filter((row) => String(row.team_id) === String(set2.team_b_id))
+        .sort((left, right) => Number(left.position_no) - Number(right.position_no))
+        .map((row) => ({ profileId: String(row.profile_id), positionNo: Number(row.position_no) })),
+    }
+
+    const started = await owner.client.rpc('rpc_start_set', {
+      match_id: String(matchId),
+      set_no: 2,
+      first_serving_team_id: String(set2.team_b_id),
+      position_assignments: validAssignments,
+    })
+
+    expect(started.error).toBeNull()
+
+    const { data: set2After, error: set2AfterError } = await owner.client
+      .from('sets')
+      .select('status, initial_serving_team_id')
+      .eq('id', String(set2.id))
+      .single()
+
+    expect(set2AfterError).toBeNull()
+    expect(set2After?.status).toBe('in_progress')
+    expect(String(set2After?.initial_serving_team_id)).toBe(String(set2.team_b_id))
+
+    const { data: set2Snapshots, error: snapshotError } = await owner.client
+      .from('set_positions')
+      .select('team_id, profile_id, position_no')
+      .eq('set_id', String(set2.id))
+
+    expect(snapshotError).toBeNull()
+    expect((set2Snapshots ?? []).length).toBe(4)
+  }, 60_000)
 })

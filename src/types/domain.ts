@@ -114,6 +114,26 @@ export interface MatchPlayer {
   positionNo: number
 }
 
+export interface TeamPositionAssignment {
+  profileId: string
+  positionNo: number
+}
+
+export interface TeamPositionAssignments {
+  teamA: TeamPositionAssignment[]
+  teamB: TeamPositionAssignment[]
+}
+
+export interface SetPositionSnapshot {
+  id: string
+  setId: string
+  matchId: string
+  teamId: string
+  profileId: string
+  positionNo: number
+  createdAt: string
+}
+
 export interface Match {
   id: string
   groupId: string

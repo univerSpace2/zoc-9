@@ -262,6 +262,6 @@ describe('local-data match completion', () => {
     expect(updated.match.status).toBe('in_progress')
     expect(updated.match.winnerTeamId).toBeUndefined()
     expect(updated.sets[2].status).not.toBe('ignored')
-    expect(updated.sets[2].status).toBe('in_progress')
+    expect(updated.sets[2].status).toBe('pending')
   })
 })

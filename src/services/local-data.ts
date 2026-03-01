@@ -27,6 +27,8 @@ import type {
   MeetingWinStat,
   PermissionKey,
   Profile,
+  SetPositionSnapshot,
+  TeamPositionAssignments,
   SetRecord,
   TeamSize,
   Venue,
@@ -67,6 +69,7 @@ interface LocalDataStore {
   matches: Match[]
   matchTeams: MatchTeam[]
   matchPlayers: MatchPlayer[]
+  setPositions: SetPositionSnapshot[]
   sets: SetRecord[]
   notices: {
     id: string
@@ -90,6 +93,7 @@ const emptyStore: LocalDataStore = {
   matches: [],
   matchTeams: [],
   matchPlayers: [],
+  setPositions: [],
   sets: [],
   notices: [],
   auditLogs: [],
@@ -768,7 +772,110 @@ export async function getMeetingDetail(meetingId: string): Promise<{
   }
 }
 
-export async function startSetByIdWithServingTeam(setId: string, firstServingTeamId?: string): Promise<SetRecord> {
+function validatePositionAssignments(
+  draft: LocalDataStore,
+  set: SetRecord,
+  positionAssignments: TeamPositionAssignments,
+): TeamPositionAssignments {
+  const [teamAId, teamBId] = set.teamIds
+  const teamAssignments: Array<{ teamId: string; assignments: TeamPositionAssignments['teamA'] }> = [
+    { teamId: teamAId, assignments: positionAssignments.teamA },
+    { teamId: teamBId, assignments: positionAssignments.teamB },
+  ]
+
+  for (const { teamId, assignments } of teamAssignments) {
+    if (assignments.length !== set.teamSize) {
+      throw new Error('팀 포지션을 모두 지정하세요.')
+    }
+
+    const profileIds = assignments.map((item) => item.profileId)
+    const positionNos = assignments.map((item) => item.positionNo)
+    const uniqueProfileIds = new Set(profileIds)
+    const uniquePositionNos = new Set(positionNos)
+
+    if (uniqueProfileIds.size !== assignments.length || uniquePositionNos.size !== assignments.length) {
+      throw new Error('포지션 배정이 중복되었습니다.')
+    }
+
+    for (const positionNo of positionNos) {
+      if (!Number.isInteger(positionNo) || positionNo < 1 || positionNo > set.teamSize) {
+        throw new Error('포지션 번호가 올바르지 않습니다.')
+      }
+    }
+
+    const teamMemberIds = new Set(
+      draft.matchPlayers
+        .filter((player) => player.matchId === set.matchId && player.teamId === teamId)
+        .map((player) => player.profileId),
+    )
+
+    for (const profileId of profileIds) {
+      if (!teamMemberIds.has(profileId)) {
+        throw new Error('팀 멤버가 아닌 포지션 배정이 포함되었습니다.')
+      }
+    }
+  }
+
+  return {
+    teamA: [...positionAssignments.teamA].sort((left, right) => left.positionNo - right.positionNo),
+    teamB: [...positionAssignments.teamB].sort((left, right) => left.positionNo - right.positionNo),
+  }
+}
+
+function persistSetPositionsSnapshot(
+  draft: LocalDataStore,
+  set: SetRecord,
+  positionAssignments: TeamPositionAssignments,
+): void {
+  const [teamAId, teamBId] = set.teamIds
+  draft.setPositions = draft.setPositions.filter((item) => item.setId !== set.id)
+
+  draft.setPositions.push(
+    ...positionAssignments.teamA.map((item) => ({
+      id: createId('spos'),
+      setId: set.id,
+      matchId: set.matchId,
+      teamId: teamAId,
+      profileId: item.profileId,
+      positionNo: item.positionNo,
+      createdAt: nowIso(),
+    })),
+    ...positionAssignments.teamB.map((item) => ({
+      id: createId('spos'),
+      setId: set.id,
+      matchId: set.matchId,
+      teamId: teamBId,
+      profileId: item.profileId,
+      positionNo: item.positionNo,
+      createdAt: nowIso(),
+    })),
+  )
+}
+
+function buildPositionAssignmentsFromMatchPlayers(
+  matchId: string,
+  teamIds: [string, string],
+  players: MatchPlayer[],
+): TeamPositionAssignments {
+  const [teamAId, teamBId] = teamIds
+
+  return {
+    teamA: players
+      .filter((player) => player.matchId === matchId && player.teamId === teamAId)
+      .sort((left, right) => left.positionNo - right.positionNo)
+      .map((player) => ({ profileId: player.profileId, positionNo: player.positionNo })),
+    teamB: players
+      .filter((player) => player.matchId === matchId && player.teamId === teamBId)
+      .sort((left, right) => left.positionNo - right.positionNo)
+      .map((player) => ({ profileId: player.profileId, positionNo: player.positionNo })),
+  }
+}
+
+export async function startSetByIdWithServingTeam(
+  setId: string,
+  firstServingTeamId?: string,
+  positionAssignments?: TeamPositionAssignments,
+): Promise<SetRecord> {
   let next: SetRecord | null = null
 
   updateStore((draft) => {
@@ -783,6 +890,25 @@ export async function startSetByIdWithServingTeam(setId: string, firstServingTea
     if (!current.teamIds.includes(servingTeamId)) {
       throw new Error('유효하지 않은 시작 서브 팀입니다.')
     }
+
+    if (current.setNo >= 2) {
+      const previousSet = draft.sets.find((set) => set.matchId === current.matchId && set.setNo === current.setNo - 1)
+      if (!previousSet || (previousSet.status !== 'completed' && previousSet.status !== 'ignored')) {
+        throw new Error('이전 세트가 완료되어야 시작할 수 있습니다.')
+      }
+
+      if (!positionAssignments) {
+        throw new Error('포지션 확인 후 세트를 시작하세요.')
+      }
+    }
+
+    let resolvedPositionAssignments = positionAssignments
+    if (!resolvedPositionAssignments) {
+      resolvedPositionAssignments = buildPositionAssignmentsFromMatchPlayers(current.matchId, current.teamIds, draft.matchPlayers)
+    }
+
+    const validatedPositionAssignments = validatePositionAssignments(draft, current, resolvedPositionAssignments)
+    persistSetPositionsSnapshot(draft, current, validatedPositionAssignments)
 
     const prepared: SetRecord = {
       ...current,
@@ -1011,12 +1137,17 @@ export async function createMatch(profileId: string, input: CreateMatchInput): P
   }
 
   const sets = createSetSeries(match, [teamAId, teamBId], input.teamSize)
+  const firstSet = sets.find((set) => set.setNo === 1)
+  const firstSetPositionAssignments = buildPositionAssignmentsFromMatchPlayers(matchId, [teamAId, teamBId], players)
 
   updateStore((draft) => {
     draft.matches.push(match)
     draft.matchTeams.push(...teams)
     draft.matchPlayers.push(...players)
     draft.sets.push(...sets)
+    if (firstSet) {
+      persistSetPositionsSnapshot(draft, firstSet, firstSetPositionAssignments)
+    }
 
     const meeting = draft.meetings.find((item) => item.id === input.meetingId)
     if (meeting && meeting.status === 'scheduled') {
@@ -1032,6 +1163,7 @@ export async function listMatches(meetingId: string): Promise<
     match: Match
     teams: MatchTeam[]
     players: MatchPlayer[]
+    setPositions: SetPositionSnapshot[]
     sets: SetRecord[]
   }[]
 > {
@@ -1043,6 +1175,7 @@ export async function listMatches(meetingId: string): Promise<
       match,
       teams: store.matchTeams.filter((team) => team.matchId === match.id),
       players: store.matchPlayers.filter((player) => player.matchId === match.id),
+      setPositions: store.setPositions.filter((position) => position.matchId === match.id),
       sets: store.sets
         .filter((set) => set.matchId === match.id)
         .sort((left, right) => left.setNo - right.setNo),
@@ -1052,7 +1185,14 @@ export async function listMatches(meetingId: string): Promise<
 
 export async function getSet(
   setId: string,
-): Promise<{ set: SetRecord; match: Match; teams: MatchTeam[]; players: MatchPlayer[] } | null> {
+): Promise<{
+  set: SetRecord
+  sets: SetRecord[]
+  match: Match
+  teams: MatchTeam[]
+  players: MatchPlayer[]
+  setPositions: SetPositionSnapshot[]
+} | null> {
   const store = loadStore()
   const set = store.sets.find((item) => item.id === setId)
 
@@ -1068,9 +1208,13 @@ export async function getSet(
 
   return {
     set,
+    sets: store.sets
+      .filter((item) => item.matchId === match.id)
+      .sort((left, right) => left.setNo - right.setNo),
     match,
     teams: store.matchTeams.filter((team) => team.matchId === match.id),
     players: store.matchPlayers.filter((player) => player.matchId === match.id),
+    setPositions: store.setPositions.filter((position) => position.matchId === match.id),
   }
 }
 
@@ -1110,7 +1254,7 @@ function finalizeMatchState(draft: LocalDataStore, matchId: string): void {
     }
   }
 
-  let sets = draft.sets.filter((set) => set.matchId === matchId).sort((left, right) => left.setNo - right.setNo)
+  const sets = draft.sets.filter((set) => set.matchId === matchId).sort((left, right) => left.setNo - right.setNo)
 
   const decision = decideMatchWinner(sets, match.requiredSetWins)
 
@@ -1133,18 +1277,6 @@ function finalizeMatchState(draft: LocalDataStore, matchId: string): void {
           winnerTeamId: undefined,
           events: [],
         }
-      }
-    }
-
-    sets = draft.sets.filter((set) => set.matchId === matchId).sort((left, right) => left.setNo - right.setNo)
-    const hasInProgress = sets.some((set) => set.status === 'in_progress')
-
-    if (!hasInProgress) {
-      const pending = sets.find((set) => set.status === 'pending')
-
-      if (pending) {
-        const index = draft.sets.findIndex((set) => set.id === pending.id)
-        draft.sets[index] = startSet(pending)
       }
     }
 
@@ -1191,9 +1323,12 @@ export async function recordRally(payload: {
       return
     }
 
-    const inProgressSet = current.status === 'pending' ? startSet(current) : current
+    if (current.status !== 'in_progress') {
+      throw new Error('진행 중인 세트가 아닙니다.')
+    }
+
     const updated = applyRally(
-      inProgressSet,
+      current,
       payload.scoringTeamId,
       payload.clientEventId,
       payload.occurredAt,

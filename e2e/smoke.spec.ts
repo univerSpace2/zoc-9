@@ -100,9 +100,13 @@ async function createMatch(page: Page, options?: { deuce?: boolean }) {
   const teamBButtons = page.getByTestId('team-b-capsules').locator('button[data-member-id]')
 
   await teamAButtons.nth(0).click()
+  await page.getByRole('button', { name: /^1번/ }).click()
   await teamAButtons.nth(1).click()
+  await page.getByRole('button', { name: /^2번/ }).click()
   await teamBButtons.nth(2).click()
+  await page.getByRole('button', { name: /^1번/ }).click()
   await teamBButtons.nth(3).click()
+  await page.getByRole('button', { name: /^2번/ }).click()
 
   await page.getByRole('button', { name: '심판 (선택)' }).click()
   await page.getByRole('dialog').getByRole('button', { name: '시드5' }).click()
@@ -122,15 +126,13 @@ async function createMatch(page: Page, options?: { deuce?: boolean }) {
   await expect(page.getByText('세트 1')).toBeVisible()
 }
 
-async function winCurrentSetWithTeamA(page: Page) {
-  const startButton = page.getByRole('button', { name: '세트 시작' })
-  if (await startButton.isVisible()) {
-    await startButton.click()
-  }
-
+async function scoreSetWithTeamAUntilReadonly(page: Page) {
   const readonlyNotice = page.getByText('완료된 기록은 기본 수정 불가입니다.')
   const scoreButton = page.getByRole('button', { name: /A팀 \+1/ })
-  for (let i = 0; i < 12; i += 1) {
+
+  await expect(scoreButton).toBeEnabled({ timeout: 10000 })
+
+  for (let i = 0; i < 30; i += 1) {
     if (await readonlyNotice.isVisible()) {
       break
     }
@@ -152,10 +154,70 @@ async function winCurrentSetWithTeamA(page: Page) {
 
     if (!clicked) {
       await page.waitForTimeout(120)
+      continue
+    }
+
+    await page.waitForTimeout(80)
+  }
+
+  await expect(readonlyNotice).toBeVisible({ timeout: 10000 })
+}
+
+async function winCurrentSetWithTeamA(
+  page: Page,
+  options?: {
+    requirePositionConfirmation?: boolean
+    setServingTeamName?: 'A팀' | 'B팀'
+    swapTeamAPosition?: number
+  },
+) {
+  const startButton = page.getByRole('button', { name: '세트 시작' })
+  if (await startButton.isVisible()) {
+    await startButton.click()
+  } else {
+    const confirmStartButton = page.getByRole('button', { name: '포지션 확인 후 세트 시작' })
+    if (await confirmStartButton.isVisible()) {
+      await confirmStartButton.click()
+      await expect(page.getByText(/세트 \d+ 시작 전 포지션 확인/)).toBeVisible()
+
+      if (options?.setServingTeamName) {
+        await page.getByRole('button', { name: '첫 서브 팀' }).click()
+        await page.getByRole('button', { name: options.setServingTeamName }).last().click()
+      }
+
+      if (options?.swapTeamAPosition) {
+        const teamAPositionButtons = page.locator('section[aria-label="A팀 포지션"] button[data-member-id]')
+        const targetButton = teamAPositionButtons.nth(1)
+        await expect(targetButton).not.toContainText(`${options.swapTeamAPosition}번`)
+        await targetButton.click()
+        await page.getByRole('button', { name: new RegExp(`^${options.swapTeamAPosition}번`) }).click()
+        await expect(targetButton).toContainText(`${options.swapTeamAPosition}번`)
+      }
+
+      await page.getByRole('button', { name: '확정 후 세트 시작' }).click()
     }
   }
 
-  await expect(readonlyNotice).toBeVisible()
+  if (options?.requirePositionConfirmation) {
+    await expect(page.getByRole('button', { name: '포지션 확인 후 세트 시작' })).toBeVisible()
+    return
+  }
+
+  const scoreButton = page.getByRole('button', { name: /A팀 \+1/ })
+  for (let retry = 0; retry < 20; retry += 1) {
+    if (await scoreButton.isEnabled()) {
+      break
+    }
+
+    const confirmButton = page.getByRole('button', { name: '확정 후 세트 시작' })
+    if (await confirmButton.isVisible()) {
+      await confirmButton.click()
+    }
+
+    await page.waitForTimeout(250)
+  }
+
+  await scoreSetWithTeamAUntilReadonly(page)
 }
 
 test('회원가입 → 로그인 → 그룹입장', async ({ page }) => {
@@ -190,12 +252,13 @@ test('세트 라이브 기록 → 매치 조기종료 → 잔여세트 ignored �
   await createMatch(page)
 
   await page.getByText('세트 1').first().click()
-  await winCurrentSetWithTeamA(page)
+  await scoreSetWithTeamAUntilReadonly(page)
   await page.goBack()
   const set1Card = page.locator('a').filter({ hasText: '세트 1' }).first()
   await expect(set1Card.getByText('완료')).toBeVisible()
 
   await page.getByText('세트 2').first().click()
+  await expect(page.getByRole('button', { name: '포지션 확인 후 세트 시작' })).toBeVisible()
   await winCurrentSetWithTeamA(page)
   await page.goBack()
   const set2Card = page.locator('a').filter({ hasText: '세트 2' }).first()
@@ -205,6 +268,93 @@ test('세트 라이브 기록 → 매치 조기종료 → 잔여세트 ignored �
 
   await page.getByText('세트 3').first().click()
   await expect(page.getByText('완료된 기록은 기본 수정 불가입니다.')).toBeVisible()
+})
+
+test('2세트 포지션 확인 시트에서 변경한 라인업이 세트 라이브/목록에 반영된다', async ({ page }) => {
+  const suffix = Date.now()
+  await signup(page, `lineup-${suffix}@example.com`)
+  await ensureSeedMembers(page)
+
+  await createMeetingAndEnter(page, `라인업 모임 ${suffix}`)
+  await createMatch(page)
+
+  await page.getByText('세트 1').first().click()
+  await winCurrentSetWithTeamA(page)
+  await page.goBack()
+
+  await page.getByText('세트 2').first().click()
+  await expect(page.getByRole('button', { name: '포지션 확인 후 세트 시작' })).toBeVisible()
+  await page.getByRole('button', { name: '포지션 확인 후 세트 시작' }).click()
+  await expect(page.getByText(/세트 \d+ 시작 전 포지션 확인/)).toBeVisible()
+
+  const teamAPositionButtons = page.locator('section[aria-label="A팀 포지션"] button[data-member-id]')
+  const teamAEntries = await teamAPositionButtons.allTextContents()
+  const parsedTeamAEntries = teamAEntries
+    .map((text) => {
+      const normalized = text.replace(/\s+/g, ' ').trim()
+      const matched = normalized.match(/^(.*)(\d+)번$/)
+      if (!matched) {
+        return null
+      }
+
+      return {
+        name: matched[1].trim(),
+        positionNo: Number(matched[2]),
+      }
+    })
+    .filter((entry): entry is { name: string; positionNo: number } => Boolean(entry))
+
+  const currentPosition1 = parsedTeamAEntries.find((entry) => entry.positionNo === 1)
+  const currentPosition2 = parsedTeamAEntries.find((entry) => entry.positionNo === 2)
+  expect(currentPosition1).toBeDefined()
+  expect(currentPosition2).toBeDefined()
+
+  const currentPosition2Index = parsedTeamAEntries.findIndex((entry) => entry.positionNo === 2)
+  await teamAPositionButtons.nth(currentPosition2Index).click()
+  await page.getByRole('button', { name: /^1번/ }).click()
+  await page.getByRole('button', { name: '확정 후 세트 시작' }).click()
+  await expect(page.getByRole('button', { name: /A팀 \+1/ })).toBeEnabled({ timeout: 10000 })
+
+  const persistedTeamALineup = await page.evaluate(() => {
+    const raw = window.localStorage.getItem('zoc9-data-v1')
+    if (!raw) {
+      return []
+    }
+
+    const setId = window.location.pathname.split('/set/')[1]?.split('/')[0]
+    if (!setId) {
+      return []
+    }
+
+    const data = JSON.parse(raw) as {
+      sets: Array<{ id: string; teamIds: [string, string] }>
+      setPositions: Array<{ setId: string; teamId: string; profileId: string; positionNo: number }>
+      profiles: Array<{ id: string; name: string }>
+    }
+
+    const set = data.sets.find((item) => item.id === setId)
+    if (!set) {
+      return []
+    }
+
+    const nameMap = new Map(data.profiles.map((profile) => [profile.id, profile.name]))
+
+    return data.setPositions
+      .filter((item) => item.setId === setId && item.teamId === set.teamIds[0])
+      .sort((left, right) => left.positionNo - right.positionNo)
+      .map((item) => nameMap.get(item.profileId) ?? item.profileId)
+  })
+
+  const expectedFirstName = currentPosition2!.name
+  const expectedSecondName = currentPosition1!.name
+  await expect(persistedTeamALineup).toEqual([expectedFirstName, expectedSecondName])
+
+  await page.goBack()
+  const set2Card = page.locator('a').filter({ hasText: '세트 2' }).first()
+  await expect(set2Card).toContainText(`포지션 · A팀: ${expectedFirstName} · ${expectedSecondName}`)
+
+  const set3Card = page.locator('a').filter({ hasText: '세트 3' }).first()
+  await expect(set3Card).toContainText('예상 포지션')
 })
 
 test('오프라인 득점 기록 후 복귀 동기화', async ({ page }) => {

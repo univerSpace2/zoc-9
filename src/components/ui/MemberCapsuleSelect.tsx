@@ -15,7 +15,9 @@ interface MemberCapsuleSelectProps {
   disabledIds: Set<string>
   maxSelectable: number
   teamTone: TeamTone
-  onToggle: (memberId: string) => void
+  onToggle?: (memberId: string) => void
+  onPressMember?: (memberId: string) => void
+  positionByMemberId?: Record<string, number>
   error?: string
   testId?: string
 }
@@ -33,6 +35,8 @@ export function MemberCapsuleSelect({
   maxSelectable,
   teamTone,
   onToggle,
+  onPressMember,
+  positionByMemberId,
   error,
   testId,
 }: MemberCapsuleSelectProps) {
@@ -61,14 +65,20 @@ export function MemberCapsuleSelect({
               aria-pressed={selected}
               aria-disabled={disabled}
               disabled={disabled}
-              onClick={() => onToggle(member.id)}
+              onClick={() => (onPressMember ?? onToggle)?.(member.id)}
               className={cn(
                 'inline-flex min-h-12 items-center gap-1 rounded-full border px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-55',
                 selected ? teamToneClass[teamTone] : 'border-surface-300 bg-surface text-text-primary',
               )}
+              data-position-no={positionByMemberId?.[member.id] ?? undefined}
             >
               {selected ? <Check className="h-4 w-4" aria-hidden /> : null}
               <span>{member.name}</span>
+              {selected && positionByMemberId?.[member.id] ? (
+                <span className="rounded-full bg-surface-50/85 px-2 py-0.5 text-[11px] font-bold text-surface-800">
+                  {positionByMemberId[member.id]}번
+                </span>
+              ) : null}
               {disabledReason ? <span className="text-[11px] text-surface-600">({disabledReason})</span> : null}
             </button>
           )

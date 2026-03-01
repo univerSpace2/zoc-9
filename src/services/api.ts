@@ -26,6 +26,8 @@ import type {
   ReceivedInviteItem,
   Role,
   SetRecord,
+  SetPositionSnapshot,
+  TeamPositionAssignments,
   TeamSize,
   Venue,
 } from '@/types/domain'
@@ -234,6 +236,18 @@ function mapMatchPlayerRow(row: Record<string, unknown>): MatchPlayer {
     teamId: String(row.team_id),
     profileId: String(row.profile_id),
     positionNo: Number(row.position_no),
+  }
+}
+
+function mapSetPositionRow(row: Record<string, unknown>): SetPositionSnapshot {
+  return {
+    id: String(row.id),
+    setId: String(row.set_id),
+    matchId: String(row.match_id),
+    teamId: String(row.team_id),
+    profileId: String(row.profile_id),
+    positionNo: Number(row.position_no),
+    createdAt: String(row.created_at),
   }
 }
 
@@ -972,6 +986,7 @@ export async function apiListMatches(meetingId: string): Promise<
     match: Match
     teams: MatchTeam[]
     players: MatchPlayer[]
+    setPositions: SetPositionSnapshot[]
     sets: SetRecord[]
   }[]
 > {
@@ -999,7 +1014,12 @@ export async function apiListMatches(meetingId: string): Promise<
 
   const matchIds = matches.map((item) => item.id)
 
-  const [{ data: teamRows, error: teamError }, { data: playerRows, error: playerError }, { data: setRows, error: setError }] =
+  const [
+    { data: teamRows, error: teamError },
+    { data: playerRows, error: playerError },
+    { data: setRows, error: setError },
+    { data: setPositionRows, error: setPositionError },
+  ] =
     await Promise.all([
       client
         .from('match_teams')
@@ -1016,6 +1036,10 @@ export async function apiListMatches(meetingId: string): Promise<
         )
         .in('match_id', matchIds)
         .order('set_no', { ascending: true }),
+      client
+        .from('set_positions')
+        .select('id, set_id, match_id, team_id, profile_id, position_no, created_at')
+        .in('match_id', matchIds),
     ])
 
   if (teamError) {
@@ -1028,6 +1052,10 @@ export async function apiListMatches(meetingId: string): Promise<
 
   if (setError) {
     throw new Error(setError.message)
+  }
+
+  if (setPositionError) {
+    throw new Error(setPositionError.message)
   }
 
   const teamsByMatch = new Map<string, MatchTeam[]>()
@@ -1054,10 +1082,29 @@ export async function apiListMatches(meetingId: string): Promise<
     playersByMatch.set(player.matchId, list)
   }
 
+  const setPositionsByMatch = new Map<string, SetPositionSnapshot[]>()
+  for (const row of setPositionRows ?? []) {
+    const snapshot = mapSetPositionRow(row)
+    const list = setPositionsByMatch.get(snapshot.matchId) ?? []
+    list.push(snapshot)
+    setPositionsByMatch.set(snapshot.matchId, list)
+  }
+
   return matches.map((match) => ({
     match,
     teams: teamsByMatch.get(match.id) ?? [],
     players: (playersByMatch.get(match.id) ?? []).sort((left, right) => left.positionNo - right.positionNo),
+    setPositions: (setPositionsByMatch.get(match.id) ?? []).sort((left, right) => {
+      if (left.setId !== right.setId) {
+        return left.setId.localeCompare(right.setId)
+      }
+
+      if (left.teamId !== right.teamId) {
+        return left.teamId.localeCompare(right.teamId)
+      }
+
+      return left.positionNo - right.positionNo
+    }),
     sets: (setsByMatch.get(match.id) ?? []).sort((left, right) => left.setNo - right.setNo),
   }))
 }
@@ -1092,9 +1139,11 @@ export async function apiCreateMatch(profileId: string, payload: CreateMatchInpu
 export async function apiGetSet(setId: string): Promise<
   {
     set: SetRecord
+    sets: SetRecord[]
     match: Match
     teams: MatchTeam[]
     players: MatchPlayer[]
+    setPositions: SetPositionSnapshot[]
   } | null
 > {
   if (shouldUseLocalData()) {
@@ -1124,6 +1173,8 @@ export async function apiGetSet(setId: string): Promise<
     { data: teamRows, error: teamError },
     { data: playerRows, error: playerError },
     { data: eventRows, error: eventError },
+    { data: matchSetRows, error: matchSetError },
+    { data: setPositionRows, error: setPositionError },
   ] = await Promise.all([
     client
       .from('matches')
@@ -1150,6 +1201,17 @@ export async function apiGetSet(setId: string): Promise<
       .order('occurred_at', { ascending: true })
       .order('created_at', { ascending: true })
       .order('id', { ascending: true }),
+    client
+      .from('sets')
+      .select(
+        'id, match_id, set_no, status, team_a_id, team_b_id, initial_serving_team_id, serving_team_id, target_score, deuce, team_size, score_a, score_b, rotation_a, rotation_b, winner_team_id',
+      )
+      .eq('match_id', String(setRow.match_id))
+      .order('set_no', { ascending: true }),
+    client
+      .from('set_positions')
+      .select('id, set_id, match_id, team_id, profile_id, position_no, created_at')
+      .eq('match_id', String(setRow.match_id)),
   ])
 
   if (matchError || !matchRow) {
@@ -1168,6 +1230,14 @@ export async function apiGetSet(setId: string): Promise<
     throw new Error(eventError.message)
   }
 
+  if (matchSetError) {
+    throw new Error(matchSetError.message)
+  }
+
+  if (setPositionError) {
+    throw new Error(setPositionError.message)
+  }
+
   const teamIds: [string, string] = [String(setRow.team_a_id), String(setRow.team_b_id)]
 
   const events = mapEventsWithServePositions(
@@ -1179,15 +1249,21 @@ export async function apiGetSet(setId: string): Promise<
 
   return {
     set: mapSetRow(setRow, events),
+    sets: (matchSetRows ?? []).map((row) => mapSetRow(row)).sort((left, right) => left.setNo - right.setNo),
     match: mapMatchRow(matchRow),
     teams: (teamRows ?? []).map((row) => mapTeamRow(row)),
     players: (playerRows ?? []).map((row) => mapMatchPlayerRow(row)),
+    setPositions: (setPositionRows ?? []).map((row) => mapSetPositionRow(row)),
   }
 }
 
-export async function apiStartSet(setId: string, firstServingTeamId?: string): Promise<SetRecord> {
+export async function apiStartSet(
+  setId: string,
+  firstServingTeamId?: string,
+  positionAssignments?: TeamPositionAssignments,
+): Promise<SetRecord> {
   if (shouldUseLocalData()) {
-    return startSetByIdWithServingTeam(setId, firstServingTeamId)
+    return startSetByIdWithServingTeam(setId, firstServingTeamId, positionAssignments)
   }
 
   const setPayload = await apiGetSet(setId)
@@ -1200,6 +1276,7 @@ export async function apiStartSet(setId: string, firstServingTeamId?: string): P
     match_id: setPayload.match.id,
     set_no: setPayload.set.setNo,
     first_serving_team_id: firstServingTeamId ?? setPayload.set.initialServingTeamId,
+    position_assignments: positionAssignments ?? null,
   })
 
   if (error) {
