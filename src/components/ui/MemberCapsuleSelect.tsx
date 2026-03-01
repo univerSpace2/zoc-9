@@ -1,0 +1,81 @@
+import { Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+type TeamTone = 'a' | 'b'
+
+interface MemberCapsule {
+  id: string
+  name: string
+}
+
+interface MemberCapsuleSelectProps {
+  title: string
+  members: MemberCapsule[]
+  selectedIds: string[]
+  disabledIds: Set<string>
+  maxSelectable: number
+  teamTone: TeamTone
+  onToggle: (memberId: string) => void
+  error?: string
+  testId?: string
+}
+
+const teamToneClass: Record<TeamTone, string> = {
+  a: 'border-primary/35 bg-primary/10 text-primary-strong',
+  b: 'border-live/35 bg-live/10 text-[#065f46]',
+}
+
+export function MemberCapsuleSelect({
+  title,
+  members,
+  selectedIds,
+  disabledIds,
+  maxSelectable,
+  teamTone,
+  onToggle,
+  error,
+  testId,
+}: MemberCapsuleSelectProps) {
+  const selectedSet = new Set(selectedIds)
+
+  return (
+    <section data-testid={testId} className="space-y-2 rounded-2xl bg-surface-100 px-3 py-3" aria-label={title}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-text-primary">{title}</p>
+        <p className="text-xs font-semibold text-surface-600">
+          {selectedIds.length}/{maxSelectable}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {members.map((member) => {
+          const selected = selectedSet.has(member.id)
+          const disabled = disabledIds.has(member.id)
+          const disabledReason = disabled && !selected ? '배정됨' : null
+
+          return (
+            <button
+              key={member.id}
+              type="button"
+              data-member-id={member.id}
+              aria-pressed={selected}
+              aria-disabled={disabled}
+              disabled={disabled}
+              onClick={() => onToggle(member.id)}
+              className={cn(
+                'inline-flex min-h-12 items-center gap-1 rounded-full border px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-55',
+                selected ? teamToneClass[teamTone] : 'border-surface-300 bg-surface text-text-primary',
+              )}
+            >
+              {selected ? <Check className="h-4 w-4" aria-hidden /> : null}
+              <span>{member.name}</span>
+              {disabledReason ? <span className="text-[11px] text-surface-600">({disabledReason})</span> : null}
+            </button>
+          )
+        })}
+      </div>
+
+      {error ? <p className="text-sm font-semibold text-danger">{error}</p> : null}
+    </section>
+  )
+}
