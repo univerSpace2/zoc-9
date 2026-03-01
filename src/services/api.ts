@@ -12,6 +12,7 @@ import type {
   Invite,
   Match,
   MatchFormat,
+  MatchPlayer,
   MatchTeam,
   Meeting,
   MeetingDetail,
@@ -223,6 +224,16 @@ function mapTeamRow(row: Record<string, unknown>): MatchTeam {
     id: String(row.id),
     matchId: String(row.match_id),
     name: String(row.name),
+  }
+}
+
+function mapMatchPlayerRow(row: Record<string, unknown>): MatchPlayer {
+  return {
+    id: String(row.id),
+    matchId: String(row.match_id),
+    teamId: String(row.team_id),
+    profileId: String(row.profile_id),
+    positionNo: Number(row.position_no),
   }
 }
 
@@ -960,6 +971,7 @@ export async function apiListMatches(meetingId: string): Promise<
   {
     match: Match
     teams: MatchTeam[]
+    players: MatchPlayer[]
     sets: SetRecord[]
   }[]
 > {
@@ -987,22 +999,31 @@ export async function apiListMatches(meetingId: string): Promise<
 
   const matchIds = matches.map((item) => item.id)
 
-  const [{ data: teamRows, error: teamError }, { data: setRows, error: setError }] = await Promise.all([
-    client
-      .from('match_teams')
-      .select('id, match_id, name')
-      .in('match_id', matchIds),
-    client
-      .from('sets')
-      .select(
-        'id, match_id, set_no, status, team_a_id, team_b_id, initial_serving_team_id, serving_team_id, target_score, deuce, team_size, score_a, score_b, rotation_a, rotation_b, winner_team_id',
-      )
-      .in('match_id', matchIds)
-      .order('set_no', { ascending: true }),
-  ])
+  const [{ data: teamRows, error: teamError }, { data: playerRows, error: playerError }, { data: setRows, error: setError }] =
+    await Promise.all([
+      client
+        .from('match_teams')
+        .select('id, match_id, name')
+        .in('match_id', matchIds),
+      client
+        .from('match_players')
+        .select('id, match_id, team_id, profile_id, position_no')
+        .in('match_id', matchIds),
+      client
+        .from('sets')
+        .select(
+          'id, match_id, set_no, status, team_a_id, team_b_id, initial_serving_team_id, serving_team_id, target_score, deuce, team_size, score_a, score_b, rotation_a, rotation_b, winner_team_id',
+        )
+        .in('match_id', matchIds)
+        .order('set_no', { ascending: true }),
+    ])
 
   if (teamError) {
     throw new Error(teamError.message)
+  }
+
+  if (playerError) {
+    throw new Error(playerError.message)
   }
 
   if (setError) {
@@ -1025,9 +1046,18 @@ export async function apiListMatches(meetingId: string): Promise<
     setsByMatch.set(set.matchId, list)
   }
 
+  const playersByMatch = new Map<string, MatchPlayer[]>()
+  for (const row of playerRows ?? []) {
+    const player = mapMatchPlayerRow(row)
+    const list = playersByMatch.get(player.matchId) ?? []
+    list.push(player)
+    playersByMatch.set(player.matchId, list)
+  }
+
   return matches.map((match) => ({
     match,
     teams: teamsByMatch.get(match.id) ?? [],
+    players: (playersByMatch.get(match.id) ?? []).sort((left, right) => left.positionNo - right.positionNo),
     sets: (setsByMatch.get(match.id) ?? []).sort((left, right) => left.setNo - right.setNo),
   }))
 }
@@ -1064,6 +1094,7 @@ export async function apiGetSet(setId: string): Promise<
     set: SetRecord
     match: Match
     teams: MatchTeam[]
+    players: MatchPlayer[]
   } | null
 > {
   if (shouldUseLocalData()) {
@@ -1088,30 +1119,38 @@ export async function apiGetSet(setId: string): Promise<
     return null
   }
 
-  const [{ data: matchRow, error: matchError }, { data: teamRows, error: teamError }, { data: eventRows, error: eventError }] =
-    await Promise.all([
-      client
-        .from('matches')
-        .select(
-          'id, group_id, meeting_id, format, status, team_size, target_score, deuce, penalty_text, required_set_wins, first_serving_team_id, winner_team_id, referee_profile_id, created_by, created_at',
-        )
-        .eq('id', String(setRow.match_id))
-        .single(),
-      client
-        .from('match_teams')
-        .select('id, match_id, name')
-        .eq('match_id', String(setRow.match_id))
-        .order('created_at', { ascending: true }),
-      client
-        .from('set_events')
-        .select(
-          'id, set_id, client_event_id, scoring_team_id, serving_team_id_before, serving_team_id_after, rotation_applied_to_team_id, score_a_after, score_b_after, occurred_at, created_at',
-        )
-        .eq('set_id', setId)
-        .order('occurred_at', { ascending: true })
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true }),
-    ])
+  const [
+    { data: matchRow, error: matchError },
+    { data: teamRows, error: teamError },
+    { data: playerRows, error: playerError },
+    { data: eventRows, error: eventError },
+  ] = await Promise.all([
+    client
+      .from('matches')
+      .select(
+        'id, group_id, meeting_id, format, status, team_size, target_score, deuce, penalty_text, required_set_wins, first_serving_team_id, winner_team_id, referee_profile_id, created_by, created_at',
+      )
+      .eq('id', String(setRow.match_id))
+      .single(),
+    client
+      .from('match_teams')
+      .select('id, match_id, name')
+      .eq('match_id', String(setRow.match_id))
+      .order('created_at', { ascending: true }),
+    client
+      .from('match_players')
+      .select('id, match_id, team_id, profile_id, position_no')
+      .eq('match_id', String(setRow.match_id)),
+    client
+      .from('set_events')
+      .select(
+        'id, set_id, client_event_id, scoring_team_id, serving_team_id_before, serving_team_id_after, rotation_applied_to_team_id, score_a_after, score_b_after, occurred_at, created_at',
+      )
+      .eq('set_id', setId)
+      .order('occurred_at', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true }),
+  ])
 
   if (matchError || !matchRow) {
     throw new Error(matchError?.message ?? '매치를 찾을 수 없습니다.')
@@ -1119,6 +1158,10 @@ export async function apiGetSet(setId: string): Promise<
 
   if (teamError) {
     throw new Error(teamError.message)
+  }
+
+  if (playerError) {
+    throw new Error(playerError.message)
   }
 
   if (eventError) {
@@ -1138,6 +1181,7 @@ export async function apiGetSet(setId: string): Promise<
     set: mapSetRow(setRow, events),
     match: mapMatchRow(matchRow),
     teams: (teamRows ?? []).map((row) => mapTeamRow(row)),
+    players: (playerRows ?? []).map((row) => mapMatchPlayerRow(row)),
   }
 }
 

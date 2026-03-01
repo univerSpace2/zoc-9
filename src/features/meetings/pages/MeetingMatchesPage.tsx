@@ -204,6 +204,7 @@ export function MeetingMatchesPage() {
     id: member.profileId,
     name: member.profile.name,
   }))
+  const memberNameMap = new Map((membersQuery.data ?? []).map((member) => [member.profileId, member.profile.name]))
   const memberIds = memberOptions.map((member) => member.id)
   const teamADisabledIds = computeDisabledMemberIds({
     memberIds,
@@ -468,9 +469,18 @@ export function MeetingMatchesPage() {
       </Card>
 
       <div className="space-y-2">
-        {matchesQuery.data?.map(({ match, teams, sets }) => {
+        {matchesQuery.data?.map(({ match, teams, players, sets }) => {
           const winnerTeamId = resolveMatchWinnerTeamId(match, sets)
           const winnerTeamName = teams.find((team) => team.id === winnerTeamId)?.name
+          const teamMemberNames = new Map(
+            teams.map((team) => [
+              team.id,
+              players
+                .filter((player) => player.teamId === team.id)
+                .sort((left, right) => left.positionNo - right.positionNo)
+                .map((player) => memberNameMap.get(player.profileId) ?? `포지션 ${player.positionNo}`),
+            ]),
+          )
 
           return (
             <Card key={match.id} className="space-y-3">
@@ -482,6 +492,14 @@ export function MeetingMatchesPage() {
                   <p className="text-base text-surface-600">{formatLabel[match.format]}</p>
                   <div className="mt-1">
                     <WinnerBadge teamName={winnerTeamName} compact />
+                  </div>
+                  <div className="mt-2 space-y-0.5">
+                    {teams.map((team) => (
+                      <p key={team.id} className="text-xs text-surface-600">
+                        <span className="font-semibold text-surface-700">{team.name}</span>:{' '}
+                        {(teamMemberNames.get(team.id) ?? []).length ? (teamMemberNames.get(team.id) ?? []).join(' · ') : '멤버 미지정'}
+                      </p>
+                    ))}
                   </div>
                 </div>
                 <StatusChip status={match.status} emphasize />

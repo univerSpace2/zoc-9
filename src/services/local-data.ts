@@ -1031,6 +1031,7 @@ export async function listMatches(meetingId: string): Promise<
   {
     match: Match
     teams: MatchTeam[]
+    players: MatchPlayer[]
     sets: SetRecord[]
   }[]
 > {
@@ -1041,6 +1042,7 @@ export async function listMatches(meetingId: string): Promise<
     .map((match) => ({
       match,
       teams: store.matchTeams.filter((team) => team.matchId === match.id),
+      players: store.matchPlayers.filter((player) => player.matchId === match.id),
       sets: store.sets
         .filter((set) => set.matchId === match.id)
         .sort((left, right) => left.setNo - right.setNo),
@@ -1048,7 +1050,9 @@ export async function listMatches(meetingId: string): Promise<
     .sort((left, right) => right.match.createdAt.localeCompare(left.match.createdAt))
 }
 
-export async function getSet(setId: string): Promise<{ set: SetRecord; match: Match; teams: MatchTeam[] } | null> {
+export async function getSet(
+  setId: string,
+): Promise<{ set: SetRecord; match: Match; teams: MatchTeam[]; players: MatchPlayer[] } | null> {
   const store = loadStore()
   const set = store.sets.find((item) => item.id === setId)
 
@@ -1066,6 +1070,7 @@ export async function getSet(setId: string): Promise<{ set: SetRecord; match: Ma
     set,
     match,
     teams: store.matchTeams.filter((team) => team.matchId === match.id),
+    players: store.matchPlayers.filter((player) => player.matchId === match.id),
   }
 }
 

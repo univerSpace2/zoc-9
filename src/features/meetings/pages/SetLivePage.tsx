@@ -20,6 +20,7 @@ import {
   apiGetMeeting,
   apiGetSet,
   apiHasPermission,
+  apiListMembers,
   apiRecordRally,
   apiStartSet,
   queryKeys,
@@ -78,6 +79,12 @@ export function SetLivePage() {
     queryFn: () => apiGetMeeting(meetingId ?? ''),
     enabled: Boolean(meetingId),
     refetchInterval: 12_000,
+  })
+
+  const membersQuery = useQuery({
+    queryKey: queryKeys.members(groupId ?? ''),
+    queryFn: () => apiListMembers(groupId ?? ''),
+    enabled: Boolean(groupId),
   })
 
   const refreshQueueCount = useCallback(async () => {
@@ -293,6 +300,34 @@ export function SetLivePage() {
     return new Map(payload.teams.map((team) => [team.id, team.name]))
   }, [payload])
 
+  const memberNameMap = useMemo(
+    () => new Map((membersQuery.data ?? []).map((member) => [member.profileId, member.profile.name])),
+    [membersQuery.data],
+  )
+
+  const teamRosterMap = useMemo(() => {
+    if (!payload) {
+      return new Map<string, Array<{ positionNo: number; name: string }>>()
+    }
+
+    const roster = new Map<string, Array<{ positionNo: number; name: string }>>()
+
+    for (const player of payload.players) {
+      const list = roster.get(player.teamId) ?? []
+      list.push({
+        positionNo: player.positionNo,
+        name: memberNameMap.get(player.profileId) ?? `멤버 ${player.positionNo}`,
+      })
+      roster.set(player.teamId, list)
+    }
+
+    for (const list of roster.values()) {
+      list.sort((left, right) => left.positionNo - right.positionNo)
+    }
+
+    return roster
+  }, [memberNameMap, payload])
+
   if (!setId || !payload) {
     return (
       <PageFrame className="pt-6">
@@ -323,6 +358,10 @@ export function SetLivePage() {
     set.winnerTeamId === teamAId ? 'A' : set.winnerTeamId === teamBId ? 'B' : undefined
   const winnerTeamName =
     set.winnerTeamId === teamAId ? teamAName : set.winnerTeamId === teamBId ? teamBName : undefined
+  const servingPosition = set.rotation[set.servingTeamId] ?? 0
+  const servingMemberName = servingPosition > 0
+    ? teamRosterMap.get(set.servingTeamId)?.find((player) => player.positionNo === servingPosition)?.name
+    : undefined
 
   return (
     <PageFrame className="space-y-4 pt-6">
@@ -349,8 +388,32 @@ export function SetLivePage() {
           servingTeam={servingTeamKey}
           winnerTeam={winnerTeamKey}
         />
+        <Card className="rounded-2xl border-surface-200 bg-surface-50/60 px-3 py-2">
+          <details>
+            <summary className="cursor-pointer text-lg font-black text-surface-800">멤버 보기</summary>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[teamAId, teamBId].map((teamId) => (
+                <div key={teamId} className="rounded-xl border border-surface-200 bg-white px-2 py-1.5">
+                  <p className="text-sm font-semibold text-surface-700">{teamNameMap.get(teamId)}</p>
+                  {(teamRosterMap.get(teamId) ?? []).length ? (
+                    <div className="mt-1 space-y-0.5">
+                      {(teamRosterMap.get(teamId) ?? []).map((player) => (
+                        <p key={`${teamId}-${player.positionNo}`} className="text-xs text-surface-600">
+                          {player.positionNo}번 · {player.name}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-surface-500">등록된 멤버가 없습니다.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        </Card>
         <p className="text-xl text-surface-700">
-          현재 서브: {teamNameMap.get(set.servingTeamId)} (포지션 {set.rotation[set.servingTeamId]})
+          현재 서브: {teamNameMap.get(set.servingTeamId)} (
+          {servingPosition > 0 ? `포지션 ${servingPosition} · ${servingMemberName ?? '이름 미확인'}` : '포지션 미정'})
         </p>
         {isDeuce ? <DeuceBadge state="deuce" /> : null}
         {!isDeuce && advantageTeamName ? <DeuceBadge state="advantage" teamName={advantageTeamName} /> : null}
