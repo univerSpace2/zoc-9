@@ -71,7 +71,7 @@ export function SelectField({
 
       {open
         ? createPortal(
-            <div className="fixed inset-0 z-[80]">
+            <div className="fixed inset-0 z-[100]">
               <button
                 type="button"
                 className="absolute inset-0 bg-surface-900/45"

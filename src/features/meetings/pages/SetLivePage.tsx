@@ -7,15 +7,11 @@ import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { DeuceBadge } from '@/components/ui/DeuceBadge'
 import { AdminScoreEditor } from '@/features/meetings/components/AdminScoreEditor'
 import { RallyLog } from '@/features/meetings/components/RallyLog'
 import { MemberCapsuleSelect } from '@/components/ui/MemberCapsuleSelect'
 import { PositionPickerSheet } from '@/components/ui/PositionPickerSheet'
-import { FloatingController } from '@/components/ui/FloatingController'
-import { ScoreBoardLive } from '@/components/ui/ScoreBoard'
 import { SelectField } from '@/components/ui/SelectField'
-import { StatusChip } from '@/components/ui/StatusChip'
 import { WinnerBadge } from '@/components/ui/WinnerBadge'
 import {
   assignMemberPositionWithSwap,
@@ -560,76 +556,209 @@ export function SetLivePage() {
     confirmPickerOccupancy = occupancy
   }
 
+  const attackCount = set.events.filter((e) => e.scoringTeamId === set.servingTeamId).length
+  const errorCount = set.events.filter((e) => e.scoringTeamId !== set.servingTeamId).length
+  const isLive = set.status === 'in_progress'
+  const canScore = !rallyMutation.isPending && !readOnly && isLive
+
+  const teamAServingMember = teamRosterMap.get(teamAId)?.find((p) => p.positionNo === (set.servingTeamId === teamAId ? servingPosition : 0))
+  const teamBServingMember = teamRosterMap.get(teamBId)?.find((p) => p.positionNo === (set.servingTeamId === teamBId ? servingPosition : 0))
+
+  const nextRotationMember = servingMemberName
+  const nextRotationPosition = servingPosition
+
   return (
-    <PageFrame className="space-y-4 pt-6">
-      {readOnly ? (
-        <Card className="space-y-2" tone="warning">
-          <p className="text-lg font-black text-warning">읽기 전용 상태</p>
-          <p className="text-base text-warning">완료되었거나 종료된 경기라 득점 입력이 잠겨 있습니다.</p>
-        </Card>
-      ) : null}
-
-      <Card className="space-y-3" tone="elevated">
-        <div className="flex items-center justify-between">
-          <h1 className="font-display text-4xl leading-none tracking-[0.03em]">세트 {set.setNo} 라이브</h1>
-          <StatusChip status={set.status} emphasize />
+    <PageFrame className="space-y-6 pb-48 pt-4">
+      {/* ── Status Header ── */}
+      <div className="flex flex-col items-center gap-1 text-center">
+        <div className="rounded-full bg-[#516200] px-4 py-1 text-sm font-bold tracking-wide text-[#d1fc00]">
+          {set.setNo}세트 {isLive ? '진행 중' : set.status === 'completed' ? '완료' : '대기'}
         </div>
-        <p className="text-xl text-surface-700">
-          목표 {set.targetScore}점 · 듀스 {set.deuce ? '적용' : '미적용'} · 포지션 {set.teamSize}인
-        </p>
-        <ScoreBoardLive
-          teamAName={teamAName}
-          teamBName={teamBName}
-          teamAScore={teamAScore}
-          teamBScore={teamBScore}
-          servingTeam={servingTeamKey}
-          winnerTeam={winnerTeamKey}
-          onScoreA={() => rallyMutation.mutate(teamAId)}
-          onScoreB={() => rallyMutation.mutate(teamBId)}
-          disabled={rallyMutation.isPending || readOnly || set.status !== 'in_progress'}
-        />
-        <Card className="rounded-xl bg-surface-200 px-3 py-2">
-          <details>
-            <summary className="cursor-pointer text-lg font-black text-surface-800">
-              멤버 보기 {resolvedCurrentSetPositions.predicted ? '(예상)' : ''}
-            </summary>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {[teamAId, teamBId].map((teamId) => (
-                <div key={teamId} className="rounded-xl bg-surface-50 px-2 py-1.5">
-                  <p className="text-sm font-semibold text-surface-700">{teamNameMap.get(teamId)}</p>
-                  {(teamRosterMap.get(teamId) ?? []).length ? (
-                    <div className="mt-1 space-y-0.5">
-                      {(teamRosterMap.get(teamId) ?? []).map((player) => (
-                        <p key={`${teamId}-${player.positionNo}`} className="text-xs text-surface-600">
-                          {player.positionNo}번 · {player.name}
-                        </p>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-xs text-surface-500">등록된 멤버가 없습니다.</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </details>
-        </Card>
-        <p className="text-xl text-surface-700">
-          현재 서브: {teamNameMap.get(set.servingTeamId)} (
-          {servingPosition > 0 ? `포지션 ${servingPosition} · ${servingMemberName ?? '이름 미확인'}` : '포지션 미정'})
-        </p>
-        {isDeuce ? <DeuceBadge state="deuce" /> : null}
-        {!isDeuce && advantageTeamName ? <DeuceBadge state="advantage" teamName={advantageTeamName} /> : null}
-        <WinnerBadge teamName={winnerTeamName} />
-        <p className="text-base text-surface-600">
-          오프라인 큐: {queueCount}건 {syncing ? '(동기화 중...)' : ''}
-        </p>
-        {syncNotice ? <p className="text-base font-semibold text-warning">{syncNotice}</p> : null}
-      </Card>
+        {set.deuce && isLive && (
+          <div className="mt-2 flex items-center gap-2 text-surface-600">
+            <span className="text-xs font-medium">
+              듀스 가능성 있음 (최대 {set.targetScore + 4}점)
+            </span>
+          </div>
+        )}
+      </div>
 
-      {set.status === 'pending' ? (
-        <Card className="space-y-2">
-          {set.setNo < 2 ? (
+      {/* ── Scoreboard Bento Grid ── */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Team A */}
+        <div className="flex flex-col gap-3">
+          <div className="relative flex flex-grow flex-col items-center overflow-hidden rounded-3xl bg-white p-6 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+            {/* Serving indicator */}
+            {servingTeamKey === 'A' && (
+              <div className="absolute left-4 top-4 flex items-center gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#516200]">SERVING</span>
+              </div>
+            )}
+            <span className="mt-6 text-sm font-bold text-surface-600">{teamAName}</span>
+            <p
+              aria-live="polite"
+              aria-atomic="true"
+              aria-label={`${teamAName} 점수 ${teamAScore}`}
+              className={`font-display text-[7rem] font-black leading-none tracking-tighter tabular-nums ${
+                winnerTeamKey === 'A' ? 'text-[#516200]' : servingTeamKey === 'A' ? 'text-text-primary' : 'text-text-primary/40'
+              }`}
+            >
+              {String(teamAScore).padStart(2, '0')}
+            </p>
+            {/* +/- buttons */}
+            <div className="mt-4 flex w-full gap-2">
+              <button
+                type="button"
+                disabled={!canScore}
+                className="flex h-14 flex-1 items-center justify-center rounded-xl bg-surface-300 text-surface-700 transition active:scale-90 disabled:opacity-40"
+                aria-label={`${teamAName} 감점`}
+              >
+                <span className="text-xl font-bold">−</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => rallyMutation.mutate(teamAId)}
+                disabled={!canScore}
+                className="flex h-14 w-3/4 items-center justify-center rounded-xl shadow-lg shadow-[#516200]/20 transition active:scale-95 disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg, #516200 0%, #d1fc00 100%)' }}
+                aria-label={`${teamAName} 득점`}
+              >
+                <span className="text-3xl font-bold text-[#3c4a00]">+</span>
+              </button>
+            </div>
+          </div>
+          {/* Server info */}
+          <div className={`flex items-center justify-between rounded-2xl bg-white/50 px-4 py-3 ${servingTeamKey !== 'A' ? 'opacity-50' : ''}`}>
+            <span className="text-xs font-bold text-surface-600">
+              서버: {teamAServingMember?.name ?? teamRosterMap.get(teamAId)?.[0]?.name ?? '—'}
+            </span>
+            {servingTeamKey === 'A' && (
+              <span className="rounded-full bg-[#0059b6]/10 px-2 py-0.5 text-[10px] font-black text-[#0059b6]">
+                다음: {teamRosterMap.get(teamAId)?.find((p) => p.positionNo === (servingPosition % set.teamSize) + 1)?.name ?? '—'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Team B */}
+        <div className="flex flex-col gap-3">
+          <div className="relative flex flex-grow flex-col items-center overflow-hidden rounded-3xl bg-white p-6 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+            {servingTeamKey === 'B' && (
+              <div className="absolute left-4 top-4 flex items-center gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#516200]">SERVING</span>
+              </div>
+            )}
+            <span className="mt-6 text-sm font-bold text-surface-600">{teamBName}</span>
+            <p
+              aria-live="polite"
+              aria-atomic="true"
+              aria-label={`${teamBName} 점수 ${teamBScore}`}
+              className={`font-display text-[7rem] font-black leading-none tracking-tighter tabular-nums ${
+                winnerTeamKey === 'B' ? 'text-[#516200]' : servingTeamKey === 'B' ? 'text-text-primary' : 'text-text-primary/40'
+              }`}
+            >
+              {String(teamBScore).padStart(2, '0')}
+            </p>
+            <div className="mt-4 flex w-full gap-2">
+              <button
+                type="button"
+                disabled={!canScore}
+                className="flex h-14 flex-1 items-center justify-center rounded-xl bg-surface-300 text-surface-700 transition active:scale-90 disabled:opacity-40"
+                aria-label={`${teamBName} 감점`}
+              >
+                <span className="text-xl font-bold">−</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => rallyMutation.mutate(teamBId)}
+                disabled={!canScore}
+                className="flex h-14 w-3/4 items-center justify-center rounded-xl shadow-lg shadow-[#516200]/20 transition active:scale-95 disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg, #516200 0%, #d1fc00 100%)' }}
+                aria-label={`${teamBName} 득점`}
+              >
+                <span className="text-3xl font-bold text-[#3c4a00]">+</span>
+              </button>
+            </div>
+          </div>
+          <div className={`flex items-center justify-between rounded-2xl bg-white/50 px-4 py-3 ${servingTeamKey !== 'B' ? 'opacity-50' : ''}`}>
+            <span className="text-xs font-bold text-surface-600">
+              서버: {teamBServingMember?.name ?? teamRosterMap.get(teamBId)?.[0]?.name ?? '—'}
+            </span>
+            {servingTeamKey === 'B' && (
+              <span className="rounded-full bg-[#0059b6]/10 px-2 py-0.5 text-[10px] font-black text-[#0059b6]">
+                다음: {teamRosterMap.get(teamBId)?.find((p) => p.positionNo === (servingPosition % set.teamSize) + 1)?.name ?? '—'}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Middle Info Bar: Next Server + Deuce ── */}
+      <div className="flex items-center justify-between rounded-2xl bg-surface-200 p-4">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-surface-500">Next Server</span>
+          <span className="flex items-center gap-2 text-sm font-bold text-text-primary">
+            {nextRotationMember ?? '—'} (로테이션 {nextRotationPosition})
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          {isDeuce && (
             <>
+              <span className="h-2 w-2 rounded-full bg-danger" />
+              <span className="text-xs font-black text-danger">DEUCE</span>
+            </>
+          )}
+          {!isDeuce && advantageTeamName && (
+            <span className="text-xs font-black text-[#516200]">ADV {advantageTeamName}</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Quick Stats + History Button ── */}
+      <div className="flex items-end gap-4">
+        <div className="flex-grow rounded-3xl bg-surface-400/30 p-4 backdrop-blur-sm">
+          <div className="flex items-center justify-around">
+            <div className="text-center">
+              <p className="text-[10px] font-bold text-surface-600">ATTACK</p>
+              <p className="font-display text-lg font-bold text-[#516200]">{attackCount}</p>
+            </div>
+            <div className="h-8 w-[1px] bg-surface-400/30" />
+            <div className="text-center">
+              <p className="text-[10px] font-bold text-surface-600">ERROR</p>
+              <p className="font-display text-lg font-bold text-danger">{errorCount}</p>
+            </div>
+          </div>
+        </div>
+        <details className="group">
+          <summary className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-2xl bg-[#0c0f10] text-white shadow-xl transition active:scale-95 list-none">
+            <span className="text-xl">📋</span>
+          </summary>
+          <div className="absolute right-4 z-20 mt-2 max-h-64 w-72 overflow-y-auto rounded-2xl bg-white p-3 shadow-2xl">
+            <RallyLog events={set.events} teamNameMap={teamNameMap} />
+          </div>
+        </details>
+      </div>
+
+      {/* ── Winner Badge ── */}
+      {winnerTeamName && (
+        <div className="flex items-center justify-center">
+          <WinnerBadge teamName={winnerTeamName} />
+        </div>
+      )}
+
+      {/* ── Offline Queue Notice ── */}
+      {(queueCount > 0 || syncNotice) && (
+        <div className="rounded-xl bg-surface-200 px-4 py-2 text-center text-xs text-surface-600">
+          오프라인 큐: {queueCount}건 {syncing ? '(동기화 중...)' : ''}
+          {syncNotice ? <span className="ml-2 font-semibold text-warning">{syncNotice}</span> : null}
+        </div>
+      )}
+
+      {/* ── Set Start (Pending) ── */}
+      {set.status === 'pending' && (
+        <div className="rounded-3xl bg-white p-6 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+          {set.setNo < 2 ? (
+            <div className="space-y-3">
               <SelectField
                 label="첫 서브 팀"
                 value={selectedServingTeamId}
@@ -641,99 +770,69 @@ export function SetLivePage() {
                 disabled={readOnly}
               />
               <Button
-                fullWidth
-                size="lg"
-                intent="primary"
-                onClick={() =>
-                  startMutation.mutate({
-                    firstServingTeamId: selectedServingTeamId || set.initialServingTeamId,
-                  })
-                }
+                fullWidth size="lg" intent="primary"
+                onClick={() => startMutation.mutate({ firstServingTeamId: selectedServingTeamId || set.initialServingTeamId })}
                 disabled={startMutation.isPending || readOnly}
               >
                 세트 시작
               </Button>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="space-y-3">
               <p className="text-sm font-semibold text-surface-700">2세트 이상은 포지션 확인 후 시작할 수 있습니다.</p>
-              {startConfirmError ? <p className="text-sm font-semibold text-danger">{startConfirmError}</p> : null}
-              <Button
-                fullWidth
-                size="lg"
-                intent="primary"
-                onClick={openStartConfirmation}
-                disabled={startMutation.isPending || readOnly}
-              >
+              {startConfirmError && <p className="text-sm font-semibold text-danger">{startConfirmError}</p>}
+              <Button fullWidth size="lg" intent="primary" onClick={openStartConfirmation} disabled={startMutation.isPending || readOnly}>
                 포지션 확인 후 세트 시작
               </Button>
-            </>
+            </div>
           )}
-        </Card>
-      ) : null}
+        </div>
+      )}
 
-      {set.status === 'in_progress' && !readOnly ? (
-        <FloatingController>
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-center">
-              <p className="text-xs font-bold uppercase tracking-wider text-surface-600">ATTACK</p>
-              <p className="font-display text-2xl font-bold text-text-primary">
-                {set.events.filter((e) => e.scoringTeamId === set.servingTeamId).length}
-              </p>
-            </div>
-            <div className="flex flex-1 items-center justify-center gap-2">
-              <Button
-                intent="primary"
-                size="sm"
-                onClick={() => {
-                  const nextManualScore = { teamA: String(teamAScore), teamB: String(teamBScore) }
-                  setManualScore(nextManualScore)
-                }}
-              >
-                수동 점수 수정
-              </Button>
-              <Button intent="secondary" size="sm">
-                세트 종료
-              </Button>
-              <Button intent="danger" size="sm">
-                경기중단
-              </Button>
-            </div>
-            <div className="text-center">
-              <p className="text-xs font-bold uppercase tracking-wider text-surface-600">ERROR</p>
-              <p className="font-display text-2xl font-bold text-text-primary">
-                {set.events.filter((e) => e.scoringTeamId !== set.servingTeamId).length}
-              </p>
-            </div>
-          </div>
-          {rallyMutation.error ? <p className="mt-2 text-sm text-danger">{(rallyMutation.error as Error).message}</p> : null}
-        </FloatingController>
-      ) : null}
+      {/* ── Read-only notice ── */}
+      {readOnly && (
+        <div className="rounded-xl bg-[#FFF8F0] px-4 py-3 text-center text-sm font-semibold text-warning">
+          완료된 기록은 기본 수정 불가입니다.
+        </div>
+      )}
 
-      {set.status === 'pending' ? (
-        <Card className="space-y-2">
-          <p className="text-base font-semibold text-surface-700">세트를 먼저 시작하세요.</p>
-        </Card>
-      ) : null}
-      {readOnly ? (
-        <Card className="space-y-2">
-          <p className="text-base font-semibold text-surface-700">완료된 기록은 기본 수정 불가입니다.</p>
-        </Card>
-      ) : null}
-
-      {readOnly && canEditCompleted ? (
+      {/* ── Admin Score Editor ── */}
+      {readOnly && canEditCompleted && (
         <AdminScoreEditor
-          teamAName={teamAName}
-          teamBName={teamBName}
-          manualScore={manualScore}
-          onScoreChange={setManualScore}
-          onSubmit={() => editMutation.mutate()}
-          isPending={editMutation.isPending}
-          error={manualError}
+          teamAName={teamAName} teamBName={teamBName}
+          manualScore={manualScore} onScoreChange={setManualScore}
+          onSubmit={() => editMutation.mutate()} isPending={editMutation.isPending} error={manualError}
         />
-      ) : null}
+      )}
 
-      <RallyLog events={set.events} teamNameMap={teamNameMap} />
+      {/* ── Floating Match Controller (Glassmorphism) ── */}
+      {isLive && !readOnly && (
+        <div className="fixed bottom-24 left-1/2 z-40 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
+          <div className="flex justify-between gap-2 rounded-[2rem] bg-white/80 p-3 shadow-[0_20px_50px_rgba(0,0,0,0.15)] backdrop-blur-2xl">
+            <button
+              type="button"
+              onClick={() => setManualScore({ teamA: String(teamAScore), teamB: String(teamBScore) })}
+              className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-surface-300/50 py-4 transition hover:bg-surface-300"
+            >
+              <span className="text-base">✏️</span>
+              <span className="text-[10px] font-bold text-surface-700">수동 점수 수정</span>
+            </button>
+            <button
+              type="button"
+              className="flex flex-[1.5] flex-col items-center gap-1 rounded-2xl py-4 shadow-inner"
+              style={{ background: 'linear-gradient(135deg, #516200 0%, #d1fc00 100%)' }}
+            >
+              <span className="text-base">✅</span>
+              <span className="text-[10px] font-black text-[#3c4a00]">세트 종료</span>
+            </button>
+            <button type="button" className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-danger/10 py-4 transition hover:bg-danger/20">
+              <span className="text-base">⏸️</span>
+              <span className="text-[10px] font-bold text-danger">경기중단</span>
+            </button>
+          </div>
+          {rallyMutation.error && <p className="mt-2 text-center text-sm text-danger">{(rallyMutation.error as Error).message}</p>}
+        </div>
+      )}
 
       {startConfirmOpen
         ? createPortal(

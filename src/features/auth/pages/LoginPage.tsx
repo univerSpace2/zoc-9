@@ -5,7 +5,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { apiLogin } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
@@ -46,34 +45,49 @@ export function LoginPage() {
   })
 
   return (
-    <PageFrame className="space-y-4 pt-6">
-      <Card className="space-y-4" tone="elevated">
-        <h1 className="font-display text-4xl leading-none tracking-[0.03em]">로그인</h1>
+    <PageFrame className="flex min-h-screen flex-col pt-10">
+      {/* Brand */}
+      <div className="mb-10 flex items-baseline gap-1.5">
+        <span className="font-display text-3xl font-bold tracking-tight text-[#0c0f10]">ZOC9</span>
+      </div>
 
-        <form
-          className="space-y-2"
-          onSubmit={handleSubmit((values) => loginMutation.mutate({ email: values.email, password: values.password }))}
-        >
-          <Input label="이메일" type="email" autoComplete="email" error={errors.email?.message} {...register('email')} />
-          <Input
-            label="비밀번호"
-            type="password"
-            autoComplete="current-password"
-            error={errors.password?.message}
-            {...register('password')}
-          />
-          {loginMutation.error ? (
-            <p className="text-base font-semibold text-danger">{(loginMutation.error as Error).message}</p>
-          ) : null}
-          <Button type="submit" fullWidth size="lg" intent="primary" disabled={loginMutation.isPending}>
+      {/* Heading */}
+      <h1 className="mb-2 font-display text-2xl font-bold tracking-tight text-[#0c0f10]">로그인</h1>
+      <p className="mb-8 text-sm text-surface-600">이메일과 비밀번호를 입력하세요.</p>
+
+      {/* Form */}
+      <form
+        className="w-full space-y-1"
+        onSubmit={handleSubmit((values) => loginMutation.mutate({ email: values.email, password: values.password }))}
+      >
+        <Input label="이메일" type="email" autoComplete="email" error={errors.email?.message} {...register('email')} />
+        <Input
+          label="비밀번호"
+          type="password"
+          autoComplete="current-password"
+          error={errors.password?.message}
+          {...register('password')}
+        />
+        {loginMutation.error ? (
+          <p className="text-sm font-semibold text-danger">{(loginMutation.error as Error).message}</p>
+        ) : null}
+        <div className="pt-2">
+          <Button
+            type="submit"
+            fullWidth
+            size="lg"
+            className="bg-[#0c0f10] text-white shadow-[0_20px_40px_rgba(44,47,48,0.08)] hover:bg-[#1a1f22]"
+            disabled={loginMutation.isPending}
+          >
             {loginMutation.isPending ? '로그인 중...' : '로그인'}
           </Button>
-        </form>
-      </Card>
+        </div>
+      </form>
 
-      <p className="text-center text-lg text-surface-600">
+      {/* Signup link */}
+      <p className="mt-8 text-center text-sm text-surface-600">
         계정이 없나요?{' '}
-        <Link className="font-bold text-primary-strong" to="/signup">
+        <Link className="font-bold text-[#516200]" to="/signup">
           회원가입
         </Link>
       </p>

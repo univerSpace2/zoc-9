@@ -1,19 +1,18 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronRight, Plus, Timer, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, useParams } from 'react-router-dom'
 import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { MemberCapsuleSelect } from '@/components/ui/MemberCapsuleSelect'
 import { PositionPickerSheet } from '@/components/ui/PositionPickerSheet'
 import { SelectField } from '@/components/ui/SelectField'
-import { StatusChip } from '@/components/ui/StatusChip'
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
-import { WinnerBadge } from '@/components/ui/WinnerBadge'
 import {
   assignMemberPositionWithSwap,
   buildOrderedPlayerIdsByPosition,
@@ -28,7 +27,7 @@ import {
 import { ERR, FORMAT_LABEL } from '@/lib/constants'
 import { apiCreateMatch, apiGetMeeting, apiListMatches, apiListMembers, queryKeys } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
-import type { MatchFormat, SetPositionSnapshot, TeamSize } from '@/types/domain'
+import type { MatchFormat, TeamSize } from '@/types/domain'
 
 const schema = z
   .object({
@@ -147,25 +146,6 @@ function resolveMatchWinnerTeamId(
   return null
 }
 
-function buildLineupNamesByTeam(
-  teamIds: [string, string],
-  snapshots: SetPositionSnapshot[],
-  memberNameMap: Map<string, string>,
-): Map<string, string[]> {
-  const result = new Map<string, string[]>()
-
-  for (const teamId of teamIds) {
-    const names = snapshots
-      .filter((item) => item.teamId === teamId)
-      .sort((left, right) => left.positionNo - right.positionNo)
-      .map((item) => memberNameMap.get(item.profileId) ?? `포지션 ${item.positionNo}`)
-
-    result.set(teamId, names)
-  }
-
-  return result
-}
-
 export function MeetingMatchesPage() {
   const { groupId, meetingId } = useParams<{ groupId: string; meetingId: string }>()
   const user = useAuthStore((state) => state.user)
@@ -175,6 +155,7 @@ export function MeetingMatchesPage() {
     team: 'A' | 'B'
     memberId: string
   } | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
 
   const meetingQuery = useQuery({
     queryKey: queryKeys.meeting(meetingId ?? ''),
@@ -560,256 +541,295 @@ export function MeetingMatchesPage() {
         ? errors.teamBPositionMap.message
         : undefined
 
+  // Split matches into live vs rest
+  const liveMatches = (matchesQuery.data ?? []).filter((m) => m.match.status === 'in_progress')
+
   return (
-    <PageFrame className="space-y-4 pt-6">
-      <Card className="space-y-3" tone="elevated">
-        <h1 className="font-display text-4xl leading-none tracking-[0.03em]">매치</h1>
-        <p className="text-base text-surface-700">{meetingQuery.data?.title ?? '모임'}의 매치를 운영합니다.</p>
-      </Card>
-
-      <Card className="space-y-3" tone="info">
-        <h2 className="text-2xl font-black">매치 생성</h2>
-        <p className="text-sm text-surface-600">심판/팀/포지션을 수동 지정해 매치를 생성합니다.</p>
-        <form className="space-y-3" onSubmit={handleSubmit((values) => createMatchMutation.mutate(values))}>
-          <div className="grid grid-cols-2 gap-2">
-            <SelectField
-              label="경기 방식"
-              value={selectedFormat}
-              options={[
-                { value: 'single', label: '단판' },
-                { value: 'best_of_3', label: '3판 2선승' },
-                { value: 'best_of_5', label: '5판 3선승' },
-              ]}
-              onChange={(value) =>
-                setValue('format', value as MatchFormat, {
-                  shouldDirty: true,
-                  shouldValidate: true,
-                })
-              }
-            />
-            <SelectField
-              label="인원 구성"
-              value={String(selectedTeamSize)}
-              options={[
-                { value: '2', label: '2 vs 2' },
-                { value: '3', label: '3 vs 3' },
-                { value: '4', label: '4 vs 4' },
-              ]}
-              onChange={(value) =>
-                setValue('teamSize', Number(value), {
-                  shouldDirty: true,
-                  shouldValidate: true,
-                })
-              }
-            />
+    <PageFrame className="space-y-8 pt-6 pb-32">
+      {/* ── Section: 진행 중인 경기 ─────────────────────── */}
+      {liveMatches.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-end justify-between px-1">
+            <h2 className="font-display text-xl font-bold tracking-tight">진행 중인 경기</h2>
+            <span className="rounded-full bg-[#f95630] px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white animate-pulse">
+              Live Now
+            </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Input label="팀 A 이름" error={errors.teamAName?.message} {...register('teamAName')} />
-            <Input label="팀 B 이름" error={errors.teamBName?.message} {...register('teamBName')} />
-          </div>
-          <SelectField
-            label="심판 (선택)"
-            value={selectedRefereeId}
-            options={[
-              { value: '', label: '미지정' },
-              ...memberOptions.map((member) => ({
-                value: member.id,
-                label: member.name,
-              })),
-            ]}
-            onChange={handleRefereeChange}
-          />
-          <p className="text-xs text-surface-600">심판으로 지정된 멤버는 팀 선택에서 자동 제외됩니다.</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              label="목표 점수"
-              type="number"
-              min={5}
-              max={50}
-              error={errors.targetScore?.message}
-              {...register('targetScore', { valueAsNumber: true })}
-            />
-            <SelectField
-              label="첫 서브 팀"
-              value={selectedFirstServingTeamIndex}
-              options={[
-                { value: '0', label: '팀 A' },
-                { value: '1', label: '팀 B' },
-              ]}
-              onChange={(value) =>
-                setValue('firstServingTeamIndex', Number(value), {
-                  shouldDirty: true,
-                  shouldValidate: true,
-                })
-              }
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <MemberCapsuleSelect
-              testId="team-a-capsules"
-              title="팀 A 멤버"
-              members={memberOptions}
-              selectedIds={teamASelection}
-              disabledIds={teamADisabledIds}
-              maxSelectable={selectedTeamSize}
-              teamTone="a"
-              onPressMember={(memberId) => handlePressTeamMember('A', memberId)}
-              positionByMemberId={normalizedTeamAPositionMap}
-              error={teamAErrorMessage}
-            />
-            <MemberCapsuleSelect
-              testId="team-b-capsules"
-              title="팀 B 멤버"
-              members={memberOptions}
-              selectedIds={teamBSelection}
-              disabledIds={teamBDisabledIds}
-              maxSelectable={selectedTeamSize}
-              teamTone="b"
-              onPressMember={(memberId) => handlePressTeamMember('B', memberId)}
-              positionByMemberId={normalizedTeamBPositionMap}
-              error={teamBErrorMessage}
-            />
-          </div>
-          <ToggleSwitch
-            label="듀스 적용"
-            description={`현재: ${deuceEnabled ? '적용' : '미적용'}`}
-            checked={deuceEnabled}
-            onChange={(checked) =>
-              setValue('deuce', checked, {
-                shouldDirty: true,
-                shouldValidate: true,
-              })
-            }
-          />
-          <Input label="벌칙 (선택)" error={errors.penaltyText?.message} {...register('penaltyText')} />
 
-          {createMatchMutation.error ? (
-            <p className="text-base text-danger">{(createMatchMutation.error as Error).message}</p>
-          ) : null}
+          {liveMatches.map(({ match, teams, sets }) => {
+            const activeSet = sets.find((s) => s.status === 'in_progress')
+              ?? sets.filter((s) => s.status === 'completed').sort((a, b) => b.setNo - a.setNo)[0]
+              ?? sets[0]
+            const teamA = teams[0]
+            const teamB = teams[1]
+            const scoreA = activeSet ? (activeSet.score[teamA?.id ?? ''] ?? 0) : 0
+            const scoreB = activeSet ? (activeSet.score[teamB?.id ?? ''] ?? 0) : 0
+            const targetScore = activeSet?.targetScore ?? match.targetScore
+            const progress = targetScore > 0 ? Math.round((Math.max(scoreA, scoreB) / targetScore) * 100) : 0
 
-          <Button type="submit" intent="secondary" size="lg" fullWidth disabled={createMatchMutation.isPending || meetingCompleted}>
-            {createMatchMutation.isPending ? '생성 중...' : '매치 생성'}
-          </Button>
-          {meetingCompleted ? (
-            <p className="text-sm font-semibold text-surface-700">완료된 모임에서는 매치를 생성할 수 없습니다.</p>
-          ) : null}
-        </form>
-      </Card>
+            return (
+              <Link key={match.id} to={`/g/${groupId}/m/${meetingId}/match/${match.id}/set/${activeSet?.id ?? ''}/live`}>
+                <div className="relative overflow-hidden rounded-3xl bg-white p-6 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+                  {/* Kinetic blur */}
+                  <div className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-[#d1fc00]/30 blur-2xl" />
 
-      <div className="space-y-2">
-        {matchesQuery.data?.map(({ match, teams, players, setPositions, sets }) => {
-          const winnerTeamId = resolveMatchWinnerTeamId(match, sets)
-          const winnerTeamName = teams.find((team) => team.id === winnerTeamId)?.name
-          const teamMemberNames = new Map(
-            teams.map((team) => [
-              team.id,
-              players
-                .filter((player) => player.teamId === team.id)
-                .sort((left, right) => left.positionNo - right.positionNo)
-                .map((player) => memberNameMap.get(player.profileId) ?? `포지션 ${player.positionNo}`),
-            ]),
-          )
+                  <div className="relative z-10 flex flex-col items-center gap-4">
+                    {/* Match info */}
+                    <div className="flex items-center gap-2 text-surface-600">
+                      <Timer className="h-3.5 w-3.5" />
+                      <span className="text-[11px] font-bold tracking-wider">
+                        {activeSet?.setNo ?? 1}세트: {FORMAT_LABEL[match.format]} / {match.teamSize}v{match.teamSize} / {targetScore}점
+                      </span>
+                    </div>
 
-          const teamIds: [string, string] = [teams[0]?.id ?? '', teams[1]?.id ?? '']
-          const snapshotsBySetId = new Map<string, SetPositionSnapshot[]>(
-            sets.map((set) => [set.id, setPositions.filter((position) => position.setId === set.id)]),
-          )
+                    {/* Scores */}
+                    <div className="flex w-full items-center justify-between px-2">
+                      <div className="flex flex-1 flex-col items-center gap-2">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-300 text-xl font-black text-[#516200] shadow-inner">
+                          A
+                        </div>
+                        <span className="text-xs font-bold text-surface-600">{teamA?.name ?? 'Team A'}</span>
+                      </div>
 
-          const baseLineup = buildLineupNamesByTeam(teamIds, setPositions.filter((item) => item.setId === sets[0]?.id), memberNameMap)
-          if ((baseLineup.get(teamIds[0]) ?? []).length === 0) {
-            baseLineup.set(
-              teamIds[0],
-              players
-                .filter((player) => player.teamId === teamIds[0])
-                .sort((left, right) => left.positionNo - right.positionNo)
-                .map((player) => memberNameMap.get(player.profileId) ?? `포지션 ${player.positionNo}`),
-            )
-          }
-          if ((baseLineup.get(teamIds[1]) ?? []).length === 0) {
-            baseLineup.set(
-              teamIds[1],
-              players
-                .filter((player) => player.teamId === teamIds[1])
-                .sort((left, right) => left.positionNo - right.positionNo)
-                .map((player) => memberNameMap.get(player.profileId) ?? `포지션 ${player.positionNo}`),
-            )
-          }
+                      <div className="flex flex-1 flex-col items-center">
+                        <div className="flex items-center gap-3">
+                          <span className="font-display text-5xl font-black tracking-tighter">{String(scoreA).padStart(2, '0')}</span>
+                          <span className="text-2xl font-black text-surface-400">:</span>
+                          <span className="font-display text-5xl font-black tracking-tighter">{String(scoreB).padStart(2, '0')}</span>
+                        </div>
+                      </div>
 
-          return (
-            <Card key={match.id} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-4xl font-display leading-none">
-                    {teams[0]?.name} vs {teams[1]?.name}
-                  </p>
-                  <p className="text-base text-surface-600">{FORMAT_LABEL[match.format]}</p>
-                  <div className="mt-1">
-                    <WinnerBadge teamName={winnerTeamName} compact />
-                  </div>
-                  <div className="mt-2 space-y-0.5">
-                    {teams.map((team) => (
-                      <p key={team.id} className="text-xs text-surface-600">
-                        <span className="font-semibold text-surface-700">{team.name}</span>:{' '}
-                        {(teamMemberNames.get(team.id) ?? []).length ? (teamMemberNames.get(team.id) ?? []).join(' · ') : '멤버 미지정'}
-                      </p>
-                    ))}
+                      <div className="flex flex-1 flex-col items-center gap-2">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-300 text-xl font-black text-[#0059b6] shadow-inner">
+                          B
+                        </div>
+                        <span className="text-xs font-bold text-surface-600">{teamB?.name ?? 'Team B'}</span>
+                      </div>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div className="mt-2 w-full rounded-2xl bg-[#d1fc00]/30 p-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-[#516200]">SET PROGRESS</span>
+                        <span className="text-[10px] font-bold text-[#516200]">{progress}%</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-white/50">
+                        <div className="h-full rounded-full bg-[#516200] transition-all" style={{ width: `${progress}%` }} />
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <StatusChip status={match.status} emphasize />
+              </Link>
+            )
+          })}
+        </section>
+      )}
+
+      {/* ── Section: 경기 기록 ──────────────────────────── */}
+      {(matchesQuery.data ?? []).length > 0 && (
+        <section className="space-y-4">
+          <h2 className="px-1 font-display text-xl font-bold tracking-tight">경기 기록</h2>
+          <div className="space-y-4">
+            {(matchesQuery.data ?? []).map(({ match, teams, sets }) => {
+              const teamA = teams[0]
+              const teamB = teams[1]
+              const winnerTeamId = resolveMatchWinnerTeamId(match, sets)
+
+              // Aggregate set wins or show current set score for live
+              let winsA = 0
+              let winsB = 0
+              const activeSet = sets.find((s) => s.status === 'in_progress')
+              if (activeSet && match.status === 'in_progress') {
+                winsA = activeSet.score[teamA?.id ?? ''] ?? 0
+                winsB = activeSet.score[teamB?.id ?? ''] ?? 0
+              } else {
+                for (const set of sets) {
+                  const swId = resolveCompletedSetWinnerTeamId(set)
+                  if (swId === teamA?.id) winsA++
+                  else if (swId === teamB?.id) winsB++
+                }
+              }
+
+              const statusLabel = match.status === 'completed' ? 'FIN' : match.status === 'in_progress' ? 'LIVE' : 'PLN'
+              const statusColor = match.status === 'in_progress' ? 'text-[#516200]' : 'text-surface-500'
+
+              return (
+                <div key={match.id} className="overflow-hidden rounded-3xl bg-white shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition hover:shadow-lg">
+                  {/* Match summary row */}
+                  <div className="flex items-center justify-between p-5">
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col items-center">
+                        <span className={`text-[10px] font-black ${statusColor}`}>{statusLabel}</span>
+                        <span className="text-xs font-bold text-surface-400">{FORMAT_LABEL[match.format]}</span>
+                      </div>
+                      <div className="h-8 w-[2px] bg-surface-200" />
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-surface-700">{teamA?.name ?? 'Team A'}</span>
+                        <span className="text-xs font-bold text-surface-700">{teamB?.name ?? 'Team B'}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex flex-col items-end">
+                        <span className={`font-display text-lg font-black ${winnerTeamId === teamA?.id ? 'text-[#516200]' : 'text-surface-500'}`}>
+                          {String(winsA).padStart(2, '0')}
+                        </span>
+                        <span className={`font-display text-lg font-black ${winnerTeamId === teamB?.id ? 'text-[#516200]' : 'text-surface-500'}`}>
+                          {String(winsB).padStart(2, '0')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Set list */}
+                  <div className="space-y-0 border-t border-[#abadae]/10 px-4 pb-3 pt-2">
+                    {sets.map((set) => {
+                      const setScoreA = set.score[teamA?.id ?? ''] ?? 0
+                      const setScoreB = set.score[teamB?.id ?? ''] ?? 0
+                      const setWinner = resolveCompletedSetWinnerTeamId(set)
+                      const isSetLive = set.status === 'in_progress'
+
+                      return (
+                        <Link
+                          key={set.id}
+                          to={`/g/${groupId}/m/${meetingId}/match/${match.id}/set/${set.id}/live`}
+                          className={`flex items-center justify-between rounded-xl px-3 py-2.5 transition ${
+                            isSetLive ? 'bg-[#d1fc00]/10' : 'hover:bg-surface-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {isSetLive && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#516200]" />}
+                            <span className="text-sm font-bold text-text-primary">세트 {set.setNo}</span>
+                            <span className={`text-[10px] font-bold ${
+                              isSetLive ? 'text-[#516200]' : set.status === 'completed' ? 'text-surface-500' : 'text-surface-400'
+                            }`}>
+                              {isSetLive ? 'LIVE' : set.status === 'completed' ? 'FIN' : 'WAIT'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`font-display text-sm font-black ${setWinner === teamA?.id ? 'text-[#516200]' : 'text-surface-500'}`}>
+                              {setScoreA}
+                            </span>
+                            <span className="text-[10px] text-surface-400">:</span>
+                            <span className={`font-display text-sm font-black ${setWinner === teamB?.id ? 'text-[#516200]' : 'text-surface-500'}`}>
+                              {setScoreB}
+                            </span>
+                            <ChevronRight className="h-4 w-4 text-surface-400" />
+                          </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Empty state */}
+      {!(matchesQuery.data?.length) && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface-200">
+            <span className="text-2xl text-surface-600">⚽</span>
+          </div>
+          <p className="text-base font-semibold text-surface-700">아직 경기가 없습니다.</p>
+          <p className="mt-1 text-sm text-surface-600">+ 버튼으로 새 경기를 만들어 보세요.</p>
+        </div>
+      )}
+
+      {/* ── FAB Button ─────────────────────────────────── */}
+      {!meetingCompleted && (
+        <button
+          type="button"
+          onClick={() => setFormOpen(true)}
+          className="fixed bottom-24 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#d1fc00] text-[#3c4a00] shadow-xl shadow-[#516200]/20 transition active:scale-95"
+        >
+          <Plus className="h-8 w-8" strokeWidth={2.5} />
+        </button>
+      )}
+
+      {/* ── Match Creation Bottom Sheet ────────────────── */}
+      {formOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[80]">
+              <button
+                type="button"
+                className="absolute inset-0 bg-[#0c0f10]/45"
+                aria-label="매치 생성 닫기"
+                onClick={() => setFormOpen(false)}
+              />
+              <div className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-surface-50 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+                <div className="flex items-center justify-between px-5 py-4">
+                  <h2 className="font-display text-xl font-bold">매치 생성</h2>
+                  <button
+                    type="button"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-surface-200 text-surface-700"
+                    onClick={() => setFormOpen(false)}
+                    aria-label="닫기"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="max-h-[72vh] space-y-3 overflow-y-auto px-5 pb-4">
+                  <form className="space-y-3" onSubmit={handleSubmit((values) => { createMatchMutation.mutate(values); setFormOpen(false) })}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <SelectField
+                        label="경기 방식"
+                        value={selectedFormat}
+                        options={[
+                          { value: 'single', label: '단판' },
+                          { value: 'best_of_3', label: '3판 2선승' },
+                          { value: 'best_of_5', label: '5판 3선승' },
+                        ]}
+                        onChange={(value) => setValue('format', value as MatchFormat, { shouldDirty: true, shouldValidate: true })}
+                      />
+                      <SelectField
+                        label="인원 구성"
+                        value={String(selectedTeamSize)}
+                        options={[
+                          { value: '2', label: '2 vs 2' },
+                          { value: '3', label: '3 vs 3' },
+                          { value: '4', label: '4 vs 4' },
+                        ]}
+                        onChange={(value) => setValue('teamSize', Number(value), { shouldDirty: true, shouldValidate: true })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input label="팀 A 이름" error={errors.teamAName?.message} {...register('teamAName')} />
+                      <Input label="팀 B 이름" error={errors.teamBName?.message} {...register('teamBName')} />
+                    </div>
+                    <SelectField
+                      label="심판 (선택)"
+                      value={selectedRefereeId}
+                      options={[{ value: '', label: '미지정' }, ...memberOptions.map((m) => ({ value: m.id, label: m.name }))]}
+                      onChange={handleRefereeChange}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input label="목표 점수" type="number" min={5} max={50} error={errors.targetScore?.message} {...register('targetScore', { valueAsNumber: true })} />
+                      <SelectField
+                        label="첫 서브 팀"
+                        value={selectedFirstServingTeamIndex}
+                        options={[{ value: '0', label: '팀 A' }, { value: '1', label: '팀 B' }]}
+                        onChange={(value) => setValue('firstServingTeamIndex', Number(value), { shouldDirty: true, shouldValidate: true })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <MemberCapsuleSelect testId="team-a-capsules" title="팀 A 멤버" members={memberOptions} selectedIds={teamASelection} disabledIds={teamADisabledIds} maxSelectable={selectedTeamSize} teamTone="a" onPressMember={(id) => handlePressTeamMember('A', id)} positionByMemberId={normalizedTeamAPositionMap} error={teamAErrorMessage} />
+                      <MemberCapsuleSelect testId="team-b-capsules" title="팀 B 멤버" members={memberOptions} selectedIds={teamBSelection} disabledIds={teamBDisabledIds} maxSelectable={selectedTeamSize} teamTone="b" onPressMember={(id) => handlePressTeamMember('B', id)} positionByMemberId={normalizedTeamBPositionMap} error={teamBErrorMessage} />
+                    </div>
+                    <ToggleSwitch label="듀스 적용" description={`현재: ${deuceEnabled ? '적용' : '미적용'}`} checked={deuceEnabled} onChange={(c) => setValue('deuce', c, { shouldDirty: true, shouldValidate: true })} />
+                    <Input label="벌칙 (선택)" error={errors.penaltyText?.message} {...register('penaltyText')} />
+                    {createMatchMutation.error ? <p className="text-sm text-danger">{(createMatchMutation.error as Error).message}</p> : null}
+                    <Button type="submit" intent="primary" size="lg" fullWidth disabled={createMatchMutation.isPending}>
+                      {createMatchMutation.isPending ? '생성 중...' : '매치 생성'}
+                    </Button>
+                  </form>
+                </div>
               </div>
-
-              <div className="grid grid-cols-1 gap-2">
-                {sets.map((set) => {
-                  const setWinnerTeamId = resolveCompletedSetWinnerTeamId(set)
-                  const setWinnerTeamName = teams.find((team) => team.id === setWinnerTeamId)?.name
-                  let targetSnapshots = snapshotsBySetId.get(set.id) ?? []
-                  let predicted = false
-
-                  if (!targetSnapshots.length && set.status === 'pending') {
-                    const previousWithSnapshot = sets
-                      .filter((item) => item.setNo < set.setNo)
-                      .sort((left, right) => right.setNo - left.setNo)
-                      .find((item) => (snapshotsBySetId.get(item.id) ?? []).length > 0)
-
-                    if (previousWithSnapshot) {
-                      targetSnapshots = snapshotsBySetId.get(previousWithSnapshot.id) ?? []
-                    }
-                    predicted = true
-                  }
-
-                  const lineupByTeam = targetSnapshots.length
-                    ? buildLineupNamesByTeam(set.teamIds, targetSnapshots, memberNameMap)
-                    : baseLineup
-
-                  return (
-                    <Link key={set.id} to={`/g/${groupId}/m/${meetingId}/match/${match.id}/set/${set.id}/live`}>
-                      <Card className="rounded-xl px-3 py-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xl font-black">세트 {set.setNo}</span>
-                          <StatusChip status={set.status} />
-                        </div>
-                        <p className="mt-1 text-base text-surface-700">
-                          {teams[0]?.name}: {set.score[teams[0]?.id ?? ''] ?? 0} / {teams[1]?.name}:{' '}
-                          {set.score[teams[1]?.id ?? ''] ?? 0}
-                        </p>
-                        <p className="mt-1 text-xs text-surface-600">
-                          {predicted ? '예상 포지션' : '포지션'} · {teams[0]?.name}: {(lineupByTeam.get(set.teamIds[0]) ?? []).join(' · ') || '미지정'}
-                        </p>
-                        <p className="text-xs text-surface-600">
-                          {predicted ? '예상 포지션' : '포지션'} · {teams[1]?.name}: {(lineupByTeam.get(set.teamIds[1]) ?? []).join(' · ') || '미지정'}
-                        </p>
-                        {setWinnerTeamName ? (
-                          <p className="mt-1 text-sm font-semibold text-winner">승리: {setWinnerTeamName}</p>
-                        ) : null}
-                      </Card>
-                    </Link>
-                  )
-                })}
-              </div>
-            </Card>
+            </div>,
+            document.body,
           )
-        })}
-      </div>
+        : null}
 
       <PositionPickerSheet
         open={Boolean(positionPickerState?.open)}

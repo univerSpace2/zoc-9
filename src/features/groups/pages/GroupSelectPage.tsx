@@ -124,92 +124,120 @@ export function GroupSelectPage() {
   })
 
   return (
-    <PageFrame className="space-y-4 pt-6">
-      <Card className="space-y-3" tone="elevated">
-        <h1 className="font-display text-4xl leading-none tracking-[0.03em]">그룹 선택</h1>
-        <p className="text-base text-surface-700">참여 중인 그룹을 선택하거나 새 그룹을 만들 수 있습니다.</p>
+    <PageFrame className="space-y-6 pt-6 pb-32">
+      {/* Header */}
+      <div className="px-1">
+        <h1 className="font-display text-2xl font-bold tracking-tight">그룹 선택</h1>
+        <p className="mt-1 text-sm text-surface-600">참여 중인 그룹을 선택하거나 새 그룹을 만들 수 있습니다.</p>
+      </div>
 
-        {groupsQuery.data?.length ? (
-          <div className="space-y-2">
-            {groupsQuery.data.map((group) => (
-              <Link key={group.id} to={`/g/${group.id}/meetings`} className="block">
-                <Card className="rounded-2xl px-3 py-3 transition hover:-translate-y-0.5">
-                  <p className="text-xl font-bold">{group.name}</p>
-                  <p className="text-sm text-surface-600">생성일 {new Date(group.createdAt).toLocaleDateString('ko-KR')}</p>
-                </Card>
-              </Link>
-            ))}
+      {/* My Groups */}
+      {groupsQuery.data?.length ? (
+        <section className="space-y-3">
+          {groupsQuery.data.map((group) => (
+            <Link key={group.id} to={`/g/${group.id}/meetings`} className="block">
+              <div className="flex items-center justify-between rounded-xl bg-surface-50 px-5 py-4 shadow-[0_20px_40px_rgba(44,47,48,0.06)] transition active:translate-y-px">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#d1fc00]/20 font-display text-lg font-bold text-[#516200]">
+                    {group.name.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold text-text-primary">{group.name}</p>
+                    <p className="text-xs text-surface-600">
+                      생성일 {new Date(group.createdAt).toLocaleDateString('ko-KR')}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-surface-400">→</span>
+              </div>
+            </Link>
+          ))}
+        </section>
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-xl bg-surface-50 py-12 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-200">
+            <span className="text-2xl text-surface-600">👥</span>
           </div>
-        ) : (
-          <p className="text-base text-surface-600">현재 참여 중인 그룹이 없습니다.</p>
-        )}
-      </Card>
+          <p className="text-base font-semibold text-surface-700">참여 중인 그룹이 없습니다.</p>
+          <p className="mt-1 text-sm text-surface-600">초대 코드로 참여하거나 새 그룹을 만들어 보세요.</p>
+        </div>
+      )}
 
-      <Card className="space-y-3" tone="info">
-        <h2 className="text-2xl font-black">초대 코드로 참여</h2>
+      {/* Invite Code */}
+      <section className="rounded-xl bg-surface-50 p-5 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+        <h2 className="mb-3 font-display text-lg font-bold">초대 코드로 참여</h2>
         <form className="space-y-3" onSubmit={submitInviteToken}>
           <Input label="초대 코드" error={errors.inviteToken?.message} {...register('inviteToken')} />
           <Button type="submit" intent="primary" fullWidth size="lg" disabled={acceptInviteMutation.isPending}>
             {acceptInviteMutation.isPending ? '참여 처리 중...' : '코드로 참여'}
           </Button>
           {acceptInviteMutation.error ? (
-            <p className="text-base text-danger">{(acceptInviteMutation.error as Error).message}</p>
+            <p className="text-sm text-danger">{(acceptInviteMutation.error as Error).message}</p>
           ) : null}
         </form>
-      </Card>
+      </section>
 
-      <Card className="space-y-3">
-        <h2 className="text-2xl font-black">받은 초대</h2>
-        {receivedInvitesQuery.data?.length ? (
-          <div className="space-y-2">
-            {receivedInvitesQuery.data.map((item) => (
-              <div key={item.invite.id} className="rounded-xl bg-surface-200 px-3 py-3">
-                <p className="text-xl font-bold">{item.groupName}</p>
-                <p className="text-sm text-surface-600">
-                  초대자 {item.inviterName} · 권한 {item.invite.role} · 상태 {item.invite.status}
-                </p>
-                <p className="text-sm text-surface-600">
-                  만료 {new Date(item.invite.expiresAt).toLocaleString('ko-KR')} {item.isExpired ? '(만료됨)' : ''}
-                </p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Button
-                    fullWidth
-                    disabled={item.invite.status !== 'pending' || acceptInviteMutation.isPending}
-                    onClick={() => acceptInviteMutation.mutate(item.invite.token)}
-                    size="md"
-                  >
-                    수락
-                  </Button>
-                  <Button
-                    intent="neutral"
-                    fullWidth
-                    disabled={item.invite.status !== 'pending' || declineInviteMutation.isPending}
-                    onClick={() => declineInviteMutation.mutate(item.invite.token)}
-                    size="md"
-                  >
-                    거절
-                  </Button>
+      {/* Received Invites */}
+      {receivedInvitesQuery.data?.length ? (
+        <section className="space-y-3">
+          <h2 className="px-1 font-display text-lg font-bold">받은 초대</h2>
+          {receivedInvitesQuery.data.map((item) => (
+            <div key={item.invite.id} className="rounded-xl bg-surface-50 px-5 py-4 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-lg font-bold text-text-primary">{item.groupName}</p>
+                  <p className="mt-0.5 text-xs text-surface-600">
+                    초대자 {item.inviterName} · {item.invite.role}
+                  </p>
                 </div>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                  item.invite.status === 'pending'
+                    ? 'bg-[#d1fc00]/20 text-[#516200]'
+                    : 'bg-surface-200 text-surface-600'
+                }`}>
+                  {item.invite.status === 'pending' ? '대기중' : item.invite.status}
+                </span>
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-base text-surface-700">받은 초대가 없습니다.</p>
-        )}
-      </Card>
+              <p className="mt-1 text-xs text-surface-600">
+                만료 {new Date(item.invite.expiresAt).toLocaleString('ko-KR')} {item.isExpired ? '(만료됨)' : ''}
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button
+                  fullWidth
+                  disabled={item.invite.status !== 'pending' || acceptInviteMutation.isPending}
+                  onClick={() => acceptInviteMutation.mutate(item.invite.token)}
+                  size="sm"
+                >
+                  수락
+                </Button>
+                <Button
+                  intent="neutral"
+                  fullWidth
+                  disabled={item.invite.status !== 'pending' || declineInviteMutation.isPending}
+                  onClick={() => declineInviteMutation.mutate(item.invite.token)}
+                  size="sm"
+                >
+                  거절
+                </Button>
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
-      <Card className="space-y-3">
-        <h2 className="text-2xl font-black">새 그룹 만들기</h2>
+      {/* Create Group */}
+      <section className="rounded-xl bg-surface-50 p-5 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+        <h2 className="mb-3 font-display text-lg font-bold">새 그룹 만들기</h2>
         <form className="space-y-3" onSubmit={handleSubmit((values) => createGroupMutation.mutate(values))}>
           <Input label="그룹 이름" error={errors.name?.message} {...register('name')} />
           {createGroupMutation.error ? (
-            <p className="text-base text-danger">{(createGroupMutation.error as Error).message}</p>
+            <p className="text-sm text-danger">{(createGroupMutation.error as Error).message}</p>
           ) : null}
           <Button type="submit" intent="secondary" fullWidth size="lg" disabled={createGroupMutation.isPending}>
             {createGroupMutation.isPending ? '생성 중...' : '그룹 생성'}
           </Button>
         </form>
-      </Card>
+      </section>
     </PageFrame>
   )
 }
