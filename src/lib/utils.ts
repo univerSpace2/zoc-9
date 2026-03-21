@@ -12,6 +12,15 @@ export function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 12)}`
 }
 
+export function createInviteCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  let code = ''
+  for (let i = 0; i < 5; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return code
+}
+
 export function nowIso(): string {
   return new Date().toISOString()
 }

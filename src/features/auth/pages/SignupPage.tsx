@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
@@ -21,8 +21,13 @@ type FormValues = z.infer<typeof schema>
 
 export function SignupPage() {
   const navigate = useNavigate()
+  const user = useAuthStore((state) => state.user)
   const setUser = useAuthStore((state) => state.setUser)
   const setInitialized = useAuthStore((state) => state.setInitialized)
+
+  if (user) {
+    return <Navigate to="/groups" replace />
+  }
 
   const {
     register,

@@ -1,5 +1,5 @@
 import { initializeRotation, nextServePosition } from '@/lib/rules-engine'
-import { createId } from '@/lib/utils'
+import { createInviteCode } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useLocalDataMode } from '@/lib/env'
 import type {
@@ -389,6 +389,9 @@ export async function apiRegister(payload: {
   })
 
   if (error) {
+    if (error.message === 'User already registered') {
+      throw new Error('이미 가입된 이메일입니다. 로그인 페이지에서 로그인해 주세요.')
+    }
     throw new Error(error.message)
   }
 
@@ -1633,7 +1636,7 @@ export async function apiCreateInvite(
     .from('invites')
     .insert({
       group_id: payload.groupId,
-      token: createId('token'),
+      token: createInviteCode(),
       invited_email: payload.invitedEmail?.trim() || null,
       role: payload.role,
       status: 'pending',

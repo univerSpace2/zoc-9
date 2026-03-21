@@ -1,8 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
@@ -20,15 +20,16 @@ import { useAuthStore } from '@/store/auth-store'
 
 const schema = z.object({
   name: z.string().min(2, '그룹 이름은 2자 이상 입력하세요.'),
-  inviteToken: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
 
 export function GroupSelectPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.user)
+  const stayOnPage = searchParams.has('stay')
 
   const groupsQuery = useQuery({
     queryKey: queryKeys.groups(user?.id ?? ''),
@@ -43,22 +44,23 @@ export function GroupSelectPage() {
   })
 
   useEffect(() => {
-    if (groupsQuery.data && groupsQuery.data.length === 1) {
+    if (!stayOnPage && groupsQuery.data && groupsQuery.data.length === 1) {
       navigate(`/g/${groupsQuery.data[0].id}/meetings`, { replace: true })
     }
-  }, [groupsQuery.data, navigate])
+  }, [groupsQuery.data, navigate, stayOnPage])
+
+  const [inviteToken, setInviteToken] = useState('')
+  const [inviteTokenError, setInviteTokenError] = useState<string | null>(null)
 
   const {
     register,
     handleSubmit,
-    setError,
     reset,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: '',
-      inviteToken: '',
     },
   })
 
@@ -71,7 +73,7 @@ export function GroupSelectPage() {
       return apiCreateGroup(user.id, values.name)
     },
     onSuccess: async (group) => {
-      reset({ name: '', inviteToken: '' })
+      reset({ name: '' })
       await queryClient.invalidateQueries({ queryKey: queryKeys.groups(user!.id) })
       navigate(`/g/${group.id}/meetings`)
     },
@@ -106,21 +108,24 @@ export function GroupSelectPage() {
     },
   })
 
-  const submitInviteToken = handleSubmit(async (values) => {
-    const token = values.inviteToken?.trim()
+  const submitInviteToken = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const token = inviteToken.trim()
 
     if (!token) {
-      setError('inviteToken', { message: '초대 코드를 입력하세요.' })
+      setInviteTokenError('초대 코드를 입력하세요.')
       return
     }
 
+    setInviteTokenError(null)
+
     try {
       await acceptInviteMutation.mutateAsync(token)
-      reset({ name: values.name, inviteToken: '' })
+      setInviteToken('')
     } catch (error) {
-      setError('inviteToken', { message: (error as Error).message })
+      setInviteTokenError((error as Error).message)
     }
-  })
+  }
 
   return (
     <PageFrame className="space-y-6 pt-6 pb-32">
@@ -166,13 +171,15 @@ export function GroupSelectPage() {
       <section className="rounded-xl bg-surface-50 p-5 shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
         <h2 className="mb-3 font-display text-lg font-bold">초대 코드로 참여</h2>
         <form className="space-y-3" onSubmit={submitInviteToken}>
-          <Input label="초대 코드" error={errors.inviteToken?.message} {...register('inviteToken')} />
+          <Input
+            label="초대 코드"
+            error={inviteTokenError ?? undefined}
+            value={inviteToken}
+            onChange={(e) => setInviteToken(e.target.value.toUpperCase())}
+          />
           <Button type="submit" intent="primary" fullWidth size="lg" disabled={acceptInviteMutation.isPending}>
             {acceptInviteMutation.isPending ? '참여 처리 중...' : '코드로 참여'}
           </Button>
-          {acceptInviteMutation.error ? (
-            <p className="text-sm text-danger">{(acceptInviteMutation.error as Error).message}</p>
-          ) : null}
         </form>
       </section>
 

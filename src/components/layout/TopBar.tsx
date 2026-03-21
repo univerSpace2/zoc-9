@@ -10,7 +10,7 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-30 glass px-5 py-3">
       <div className="mx-auto flex max-w-md items-center justify-between gap-3">
-        <Link to="/groups" className="font-display text-[2rem] leading-none tracking-[0.06em] text-text-primary">
+        <Link to="/groups?stay=1" className="font-display text-[2rem] leading-none tracking-[0.06em] text-text-primary">
           ZOC9
         </Link>
         {user ? (

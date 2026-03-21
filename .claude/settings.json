@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -l \"rpc_accept_invite\\\\|rpc_decline_invite\\\\|rpc_cancel_invite\\\\|rpc_reissue_invite\\\\|rpc_get_invite_by_token\\\\|rpc_list_received_invites\" /Users/universpace/projects/ZOC9/supabase/migrations/*.sql)",
+      "Bash(grep -n \"rpc_accept_invite\\\\|rpc_reissue_invite\" /Users/universpace/projects/ZOC9/supabase/migrations/*.sql)"
+    ]
+  }
+}

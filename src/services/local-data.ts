@@ -10,7 +10,7 @@ import {
   requiredSetWins,
   startSet,
 } from '@/lib/rules-engine'
-import { createId, nowIso } from '@/lib/utils'
+import { createId, createInviteCode, nowIso } from '@/lib/utils'
 import type {
   AuditLog,
   CreateMatchInput,
@@ -599,7 +599,7 @@ export async function createInvite(
   const invite: Invite = {
     id: createId('invite'),
     groupId: input.groupId,
-    token: createId('token'),
+    token: createInviteCode(),
     invitedEmail: input.invitedEmail,
     role: input.role,
     status: 'pending',
