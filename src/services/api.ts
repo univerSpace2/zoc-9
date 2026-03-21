@@ -92,6 +92,9 @@ export const queryKeys = {
   venues: (groupId: string) => ['venues', groupId] as const,
   notices: (groupId: string) => ['notices', groupId] as const,
   auditLogs: (groupId: string) => ['auditLogs', groupId] as const,
+  permission: (profileId: string, groupId: string, key: string) => ['permission', profileId, groupId, key] as const,
+  groupMember: (profileId: string, groupId: string) => ['groupMember', profileId, groupId] as const,
+  inviteByToken: (token: string) => ['invite-by-token', token] as const,
 } as const
 
 function shouldUseLocalData(): boolean {

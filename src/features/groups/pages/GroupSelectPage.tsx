@@ -16,6 +16,7 @@ import {
   apiListReceivedInvites,
   queryKeys,
 } from '@/services/api'
+import { ERR } from '@/lib/constants'
 import { useAuthStore } from '@/store/auth-store'
 
 const schema = z.object({
@@ -65,7 +66,7 @@ export function GroupSelectPage() {
   const createGroupMutation = useMutation({
     mutationFn: async (values: FormValues) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiCreateGroup(user.id, values.name)
@@ -80,7 +81,7 @@ export function GroupSelectPage() {
   const acceptInviteMutation = useMutation({
     mutationFn: async (token: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiAcceptInvite(user.id, token)
@@ -162,7 +163,7 @@ export function GroupSelectPage() {
         {receivedInvitesQuery.data?.length ? (
           <div className="space-y-2">
             {receivedInvitesQuery.data.map((item) => (
-              <div key={item.invite.id} className="rounded-2xl border border-surface-200 bg-surface-50 px-3 py-3">
+              <div key={item.invite.id} className="rounded-xl bg-surface-200 px-3 py-3">
                 <p className="text-xl font-bold">{item.groupName}</p>
                 <p className="text-sm text-surface-600">
                   초대자 {item.inviterName} · 권한 {item.invite.role} · 상태 {item.invite.status}

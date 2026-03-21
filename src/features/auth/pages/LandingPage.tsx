@@ -6,11 +6,11 @@ import { Card } from '@/components/ui/Card'
 export function LandingPage() {
   return (
     <PageFrame className="space-y-5 pt-6">
-      <Card className="overflow-hidden bg-[linear-gradient(150deg,#0B1220_0%,#1E40AF_58%,#0B1220_100%)] text-white" tone="elevated">
+      <Card className="overflow-hidden bg-[linear-gradient(150deg,#0c0f10_0%,#516200_58%,#0c0f10_100%)] text-white" tone="elevated">
         <div className="space-y-4 px-2 py-3">
-          <p className="font-display text-base tracking-[0.22em] text-[#BFDBFE]">SPORTS HUD CLEAN</p>
+          <p className="font-display text-base tracking-[0.22em] text-[#d1fc00]">KINETIC PRECISION</p>
           <h1 className="font-display text-5xl leading-none tracking-[0.03em]">ZOC9</h1>
-          <p className="text-lg font-medium text-[#E2E8F0]">
+          <p className="text-lg font-medium text-[#dadddf]">
             야외에서도 빠르게.
             <br />
             큰 글자에서도 정확하게.

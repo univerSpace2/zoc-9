@@ -24,6 +24,7 @@ import {
   apiUpdateMemberRole,
   queryKeys,
 } from '@/services/api'
+import { ERR, PERMISSION_LABEL, PERMISSION_OPTIONS } from '@/lib/constants'
 import { useAuthStore } from '@/store/auth-store'
 import type { PermissionKey, Role } from '@/types/domain'
 
@@ -36,23 +37,6 @@ const inviteSchema = z.object({
 type InviteFormValues = z.infer<typeof inviteSchema>
 type InviteFormInput = z.input<typeof inviteSchema>
 
-const permissionOptions: PermissionKey[] = [
-  'manage_members',
-  'manage_invites',
-  'manage_venues',
-  'manage_notices',
-  'close_meeting',
-  'edit_completed_records',
-]
-
-const permissionLabel: Record<PermissionKey, string> = {
-  manage_members: '멤버 관리',
-  manage_invites: '초대 관리',
-  manage_venues: '구장 관리',
-  manage_notices: '공지 관리',
-  close_meeting: '모임 완료',
-  edit_completed_records: '완료기록 수정',
-}
 
 export function GroupMembersPage() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -73,13 +57,13 @@ export function GroupMembersPage() {
   })
 
   const manageMembersPermissionQuery = useQuery({
-    queryKey: ['permission', user?.id, groupId, 'manage_members'],
+    queryKey: queryKeys.permission(user?.id ?? '', groupId ?? '', 'manage_members'),
     queryFn: () => apiHasPermission(user!.id, groupId!, 'manage_members'),
     enabled: Boolean(user && groupId),
   })
 
   const manageInvitesPermissionQuery = useQuery({
-    queryKey: ['permission', user?.id, groupId, 'manage_invites'],
+    queryKey: queryKeys.permission(user?.id ?? '', groupId ?? '', 'manage_invites'),
     queryFn: () => apiHasPermission(user!.id, groupId!, 'manage_invites'),
     enabled: Boolean(user && groupId),
   })
@@ -114,7 +98,7 @@ export function GroupMembersPage() {
   const inviteMutation = useMutation({
     mutationFn: async (values: InviteFormValues) => {
       if (!user || !groupId) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       return apiCreateInvite(user.id, {
@@ -133,7 +117,7 @@ export function GroupMembersPage() {
   const roleMutation = useMutation({
     mutationFn: async (payload: { targetProfileId: string; role: Exclude<Role, 'owner'> }) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       await apiUpdateMemberRole(user.id, groupId, payload.targetProfileId, payload.role)
@@ -146,7 +130,7 @@ export function GroupMembersPage() {
   const permissionMutation = useMutation({
     mutationFn: async (payload: { targetProfileId: string; permissions: PermissionKey[] }) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       await apiUpdateMemberPermissions(user.id, groupId, payload.targetProfileId, payload.permissions)
@@ -159,7 +143,7 @@ export function GroupMembersPage() {
   const resetPermissionMutation = useMutation({
     mutationFn: async (targetProfileId: string) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       await apiResetMemberPermissions(user.id, groupId, targetProfileId)
@@ -172,7 +156,7 @@ export function GroupMembersPage() {
   const removeMemberMutation = useMutation({
     mutationFn: async (targetProfileId: string) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       await apiRemoveMember(user.id, groupId, targetProfileId)
@@ -185,7 +169,7 @@ export function GroupMembersPage() {
   const cancelInviteMutation = useMutation({
     mutationFn: async (inviteId: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiCancelInvite(user.id, inviteId)
@@ -198,7 +182,7 @@ export function GroupMembersPage() {
   const reissueInviteMutation = useMutation({
     mutationFn: async (inviteId: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiReissueInvite(user.id, inviteId, 7)
@@ -270,14 +254,14 @@ export function GroupMembersPage() {
               positionStatsQuery.data?.filter((item) => item.profileId === member.profileId) ?? []
 
             return (
-              <div key={member.id} className="space-y-2 rounded-2xl border border-surface-200 bg-surface-50 px-3 py-3">
+              <div key={member.id} className="space-y-2 rounded-xl bg-surface-200 px-3 py-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-xl font-black">{member.profile.name}</p>
                     <p className="text-sm uppercase tracking-wide text-surface-600">{member.role}</p>
                   </div>
                   <button
-                    className="rounded-xl border border-surface-200 bg-surface px-3"
+                    className="rounded-xl bg-surface-300 px-3"
                     onClick={async () => {
                       await navigator.clipboard.writeText(`${member.profile.phone} / ${member.profile.bankAccount ?? '-'}`)
                     }}
@@ -335,7 +319,7 @@ export function GroupMembersPage() {
                       현재 모드: {member.permissionsOverride ? '개별 오버라이드' : '역할 기본값'}
                     </p>
                     <div className="grid grid-cols-2 gap-1">
-                      {permissionOptions.map((permission) => {
+                      {PERMISSION_OPTIONS.map((permission) => {
                         const checked = member.permissions.includes(permission)
                         return (
                           <label key={permission} className="flex min-h-10 items-center gap-2 text-sm">
@@ -359,7 +343,7 @@ export function GroupMembersPage() {
                                 )
                               }}
                             />
-                            {permissionLabel[permission]}
+                            {PERMISSION_LABEL[permission]}
                           </label>
                         )
                       })}
@@ -409,7 +393,7 @@ export function GroupMembersPage() {
         <h2 className="text-2xl font-black">초대 목록</h2>
         {invitesQuery.data?.length ? (
           invitesQuery.data.map((invite) => (
-            <div key={invite.id} className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm">
+            <div key={invite.id} className="rounded-xl bg-surface-200 px-3 py-2 text-sm">
               <p className="font-semibold">
                 역할 {invite.role} · 상태 {invite.status}
               </p>

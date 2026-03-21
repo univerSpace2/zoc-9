@@ -7,6 +7,7 @@ import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { ERR } from '@/lib/constants'
 import { apiChangePassword, apiUpdateProfile } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
 
@@ -53,7 +54,7 @@ export function ProfilePage() {
   const updateMutation = useMutation({
     mutationFn: async (values: FormValues) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiUpdateProfile(user.id, {

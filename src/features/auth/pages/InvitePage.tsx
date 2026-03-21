@@ -3,7 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { apiAcceptInvite, apiDeclineInvite, apiGetInvite } from '@/services/api'
+import { ERR } from '@/lib/constants'
+import { apiAcceptInvite, apiDeclineInvite, apiGetInvite, queryKeys } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
 
 export function InvitePage() {
@@ -11,7 +12,7 @@ export function InvitePage() {
   const user = useAuthStore((state) => state.user)
 
   const inviteQuery = useQuery({
-    queryKey: ['invite-by-token', token],
+    queryKey: queryKeys.inviteByToken(token ?? ''),
     queryFn: () => apiGetInvite(token ?? ''),
     enabled: Boolean(token),
   })
@@ -19,7 +20,7 @@ export function InvitePage() {
   const acceptMutation = useMutation({
     mutationFn: async () => {
       if (!token || !user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiAcceptInvite(user.id, token)

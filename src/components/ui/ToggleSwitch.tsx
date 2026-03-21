@@ -11,7 +11,7 @@ interface ToggleSwitchProps {
 
 export function ToggleSwitch({ checked, onChange, label, description, disabled = false, id }: ToggleSwitchProps) {
   return (
-    <div className="rounded-2xl border border-surface-200 bg-surface-50 px-3 py-3">
+    <div className="rounded-[0.75rem] bg-surface-200 px-3 py-3">
       <div className="flex min-h-12 items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-base font-semibold text-text-primary">{label}</p>
@@ -40,7 +40,7 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled =
             }
           }}
           className={cn(
-            'relative inline-flex h-8 w-14 items-center rounded-full transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50',
+            'relative inline-flex h-8 w-14 items-center rounded-full transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#d1fc00]/40 disabled:cursor-not-allowed disabled:opacity-50',
             checked ? 'bg-primary' : 'bg-surface-300',
           )}
         >

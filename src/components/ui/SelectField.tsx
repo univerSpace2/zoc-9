@@ -53,9 +53,9 @@ export function SelectField({
         type="button"
         disabled={disabled}
         className={cn(
-          'inline-flex min-h-[52px] w-full items-center justify-between gap-3 rounded-2xl border border-surface-300 bg-surface px-4 text-left text-lg font-semibold text-text-primary transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
-          open && 'border-primary',
-          error && 'border-danger focus-visible:ring-danger/15',
+          'inline-flex min-h-14 w-full items-center justify-between gap-3 rounded-[0.75rem] bg-surface-200 ring-1 ring-[#abadae]/15 px-4 text-left text-lg font-semibold text-text-primary transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#d1fc00]/40 disabled:cursor-not-allowed disabled:opacity-60',
+          open && 'ring-2 ring-[#516200]/30',
+          error && 'ring-2 ring-danger/30 focus-visible:ring-danger/30',
         )}
         onClick={() => setOpen(true)}
         aria-label={label ?? placeholder}
@@ -81,13 +81,13 @@ export function SelectField({
               <div
                 role="dialog"
                 aria-modal="true"
-                className="absolute inset-x-0 bottom-0 rounded-t-[1.75rem] border-t border-surface-200 bg-surface pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-28px_44px_-30px_rgba(15,23,42,0.45)]"
+                className="absolute inset-x-0 bottom-0 rounded-t-xl bg-surface-50 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_20px_40px_rgba(44,47,48,0.06)]"
               >
                 <div className="flex items-center justify-between px-5 py-4">
                   <p className="text-xl font-bold text-text-primary">{label ?? '옵션 선택'}</p>
                   <button
                     type="button"
-                    className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-2xl border border-surface-200 bg-surface-50 text-surface-700"
+                    className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-[0.75rem] bg-surface-200 text-surface-700"
                     onClick={() => setOpen(false)}
                     aria-label="닫기"
                   >
@@ -102,8 +102,8 @@ export function SelectField({
                         type="button"
                         key={option.value}
                         className={cn(
-                          'flex min-h-[54px] w-full items-center justify-between gap-3 rounded-2xl border px-4 py-2 text-left transition',
-                          active ? 'border-primary bg-primary/10' : 'border-surface-200 bg-surface-50',
+                          'flex min-h-[54px] w-full items-center justify-between gap-3 rounded-[0.75rem] px-4 py-2 text-left transition',
+                          active ? 'bg-[#d1fc00]/15' : 'bg-surface-200',
                         )}
                         onClick={() => {
                           onChange(option.value)

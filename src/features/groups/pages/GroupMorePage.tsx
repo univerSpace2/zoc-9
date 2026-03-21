@@ -32,6 +32,7 @@ import {
   apiUpdateVenue,
   queryKeys,
 } from '@/services/api'
+import { ERR, PERMISSION_LABEL, PERMISSION_OPTIONS } from '@/lib/constants'
 import { useAuthStore } from '@/store/auth-store'
 import type { PermissionKey } from '@/types/domain'
 
@@ -54,23 +55,6 @@ type GroupFormValues = z.infer<typeof groupSchema>
 type VenueFormValues = z.infer<typeof venueSchema>
 type NoticeFormValues = z.infer<typeof noticeSchema>
 
-const permissionOptions: PermissionKey[] = [
-  'manage_members',
-  'manage_invites',
-  'manage_venues',
-  'manage_notices',
-  'close_meeting',
-  'edit_completed_records',
-]
-
-const permissionLabel: Record<PermissionKey, string> = {
-  manage_members: '멤버 관리',
-  manage_invites: '초대 관리',
-  manage_venues: '구장 관리',
-  manage_notices: '공지 관리',
-  close_meeting: '모임 완료',
-  edit_completed_records: '완료기록 수정',
-}
 
 export function GroupMorePage() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -108,7 +92,7 @@ export function GroupMorePage() {
   })
 
   const groupMemberQuery = useQuery({
-    queryKey: ['groupMember', user?.id, groupId],
+    queryKey: queryKeys.groupMember(user?.id ?? '', groupId ?? ''),
     queryFn: () => apiGetGroupMember(user!.id, groupId!),
     enabled: Boolean(user && groupId),
   })
@@ -128,19 +112,19 @@ export function GroupMorePage() {
   const [ownerTransferTargetId, setOwnerTransferTargetId] = useState<string>('')
 
   const manageVenuesPermissionQuery = useQuery({
-    queryKey: ['permission', user?.id, groupId, 'manage_venues'],
+    queryKey: queryKeys.permission(user?.id ?? '', groupId ?? '', 'manage_venues'),
     queryFn: () => apiHasPermission(user!.id, groupId!, 'manage_venues'),
     enabled: Boolean(user && groupId),
   })
 
   const manageNoticesPermissionQuery = useQuery({
-    queryKey: ['permission', user?.id, groupId, 'manage_notices'],
+    queryKey: queryKeys.permission(user?.id ?? '', groupId ?? '', 'manage_notices'),
     queryFn: () => apiHasPermission(user!.id, groupId!, 'manage_notices'),
     enabled: Boolean(user && groupId),
   })
 
   const manageInvitesPermissionQuery = useQuery({
-    queryKey: ['permission', user?.id, groupId, 'manage_invites'],
+    queryKey: queryKeys.permission(user?.id ?? '', groupId ?? '', 'manage_invites'),
     queryFn: () => apiHasPermission(user!.id, groupId!, 'manage_invites'),
     enabled: Boolean(user && groupId),
   })
@@ -172,7 +156,7 @@ export function GroupMorePage() {
   const updateGroupMutation = useMutation({
     mutationFn: async (values: GroupFormValues) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       return apiUpdateGroupName(user.id, groupId, values.name)
@@ -187,7 +171,7 @@ export function GroupMorePage() {
   const createVenueMutation = useMutation({
     mutationFn: async (values: VenueFormValues) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       return apiCreateVenue(user.id, {
@@ -207,7 +191,7 @@ export function GroupMorePage() {
   const updateVenueMutation = useMutation({
     mutationFn: async (payload: { id: string; name: string; reservationRequired: boolean; reservationUrl?: string }) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiUpdateVenue(user.id, payload.id, {
@@ -225,7 +209,7 @@ export function GroupMorePage() {
   const deleteVenueMutation = useMutation({
     mutationFn: async (venueId: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiDeleteVenue(user.id, venueId)
@@ -239,7 +223,7 @@ export function GroupMorePage() {
   const createNoticeMutation = useMutation({
     mutationFn: async (values: NoticeFormValues) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       return apiCreateNotice(user.id, {
@@ -258,7 +242,7 @@ export function GroupMorePage() {
   const updateNoticeMutation = useMutation({
     mutationFn: async (payload: { noticeId: string; title: string; body: string }) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiUpdateNotice(user.id, payload.noticeId, {
@@ -275,7 +259,7 @@ export function GroupMorePage() {
   const deleteNoticeMutation = useMutation({
     mutationFn: async (noticeId: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiDeleteNotice(user.id, noticeId)
@@ -289,7 +273,7 @@ export function GroupMorePage() {
   const cancelInviteMutation = useMutation({
     mutationFn: async (inviteId: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiCancelInvite(user.id, inviteId)
@@ -303,7 +287,7 @@ export function GroupMorePage() {
   const reissueInviteMutation = useMutation({
     mutationFn: async (inviteId: string) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       await apiReissueInvite(user.id, inviteId, 7)
@@ -317,7 +301,7 @@ export function GroupMorePage() {
   const updatePermissionPolicyMutation = useMutation({
     mutationFn: async (payload: { admin: PermissionKey[]; member: PermissionKey[] }) => {
       if (!groupId || !user) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       return apiUpdateGroupPermissionPolicy(user.id, groupId, payload)
@@ -338,7 +322,7 @@ export function GroupMorePage() {
       return apiTransferGroupOwner(user.id, groupId, resolvedOwnerTransferTargetId)
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['groupMember', user?.id, groupId] })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.groupMember(user?.id ?? '', groupId ?? '') })
       await queryClient.invalidateQueries({ queryKey: queryKeys.members(groupId ?? '') })
       await queryClient.invalidateQueries({ queryKey: queryKeys.groupPermissionPolicy(groupId ?? '') })
       await queryClient.invalidateQueries({ queryKey: queryKeys.auditLogs(groupId ?? '') })
@@ -390,10 +374,10 @@ export function GroupMorePage() {
               owner 권한 템플릿은 고정이며, admin/member 템플릿만 수정할 수 있습니다.
             </div>
             {(['admin', 'member'] as const).map((role) => (
-              <div key={role} className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2">
+              <div key={role} className="rounded-xl bg-surface-200 px-3 py-2">
                 <p className="mb-2 text-lg font-black">{role} 기본 권한</p>
                 <div className="grid grid-cols-2 gap-1">
-                  {permissionOptions.map((permission) => {
+                  {PERMISSION_OPTIONS.map((permission) => {
                     const checked = (permissionPolicy?.[role] ?? []).includes(permission)
                     return (
                       <label key={`${role}-${permission}`} className="flex min-h-10 items-center gap-2 text-sm">
@@ -416,7 +400,7 @@ export function GroupMorePage() {
                             })
                           }}
                         />
-                        {permissionLabel[permission]}
+                        {PERMISSION_LABEL[permission]}
                       </label>
                     )
                   })}
@@ -493,7 +477,7 @@ export function GroupMorePage() {
         )}
 
         {venuesQuery.data?.map((venue) => (
-          <div key={venue.id} className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm">
+          <div key={venue.id} className="rounded-xl bg-surface-200 px-3 py-2 text-sm">
             <p className="font-semibold">{venue.name}</p>
             <p>예약 필요: {venue.reservationRequired ? '예' : '아니오'}</p>
             {venue.reservationUrl ? <p className="break-all text-xs">{venue.reservationUrl}</p> : null}
@@ -544,7 +528,7 @@ export function GroupMorePage() {
               <span>공지 내용</span>
               <textarea
                 rows={4}
-                className="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-lg text-surface-900 outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/20"
+                className="w-full rounded-xl bg-surface-200 ring-1 ring-[#abadae]/15 px-3 py-2 text-lg text-surface-900 outline-none transition focus:ring-2 focus:ring-[#516200]/30"
                 {...noticeForm.register('body')}
               />
               {noticeForm.formState.errors.body?.message ? (
@@ -563,7 +547,7 @@ export function GroupMorePage() {
         )}
 
         {noticesQuery.data?.map((notice) => (
-          <div key={notice.id} className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm">
+          <div key={notice.id} className="rounded-xl bg-surface-200 px-3 py-2 text-sm">
             <p className="font-semibold">{notice.title}</p>
             <p className="whitespace-pre-wrap text-xs text-surface-700">{notice.body}</p>
             <p className="mt-1 text-xs text-surface-600">작성 {new Date(notice.createdAt).toLocaleString('ko-KR')}</p>
@@ -611,7 +595,7 @@ export function GroupMorePage() {
         <h2 className="text-2xl font-black">초대 관리</h2>
         {invitesQuery.data?.length ? (
           invitesQuery.data.map((invite) => (
-            <div key={invite.id} className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-xs">
+            <div key={invite.id} className="rounded-xl bg-surface-200 px-3 py-2 text-xs">
               <p className="font-semibold">역할: {invite.role}</p>
               <p>상태: {invite.status}</p>
               <p className="break-all">토큰: {invite.token}</p>
@@ -649,7 +633,7 @@ export function GroupMorePage() {
         <h2 className="text-2xl font-black">감사로그</h2>
         {auditQuery.data?.length ? (
           auditQuery.data.map((log) => (
-            <div key={log.id} className="rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm">
+            <div key={log.id} className="rounded-xl bg-surface-200 px-3 py-2 text-sm">
               <p className="font-semibold">{log.action}</p>
               <p>
                 {log.entityType} / {log.entityId}

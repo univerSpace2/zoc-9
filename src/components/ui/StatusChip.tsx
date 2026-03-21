@@ -4,12 +4,12 @@ import type { MatchStatus, MeetingStatus, SetStatus } from '@/types/domain'
 type Status = MatchStatus | MeetingStatus | SetStatus
 
 const statusStyle: Record<Status, string> = {
-  scheduled: 'bg-[#DBEAFE] text-[#1E3A8A]',
-  in_progress: 'bg-[#D1FAE5] text-[#065F46]',
-  completed: 'bg-[#0B1220] text-white',
-  planned: 'bg-[#E0E7FF] text-[#1E3A8A]',
+  scheduled: 'bg-surface-300 text-surface-700',
+  in_progress: 'bg-[#d1fc00]/20 text-[#516200]',
+  completed: 'bg-[#0c0f10] text-white',
+  planned: 'bg-surface-200 text-surface-700',
   pending: 'bg-[#FEF3C7] text-[#92400E]',
-  ignored: 'bg-[#E5E7EB] text-[#374151]',
+  ignored: 'bg-surface-200 text-surface-600',
 }
 
 const statusLabel: Record<Status, string> = {
@@ -26,7 +26,7 @@ export function StatusChip({ status, emphasize = false }: { status: Status; emph
     <span
       className={cn(
         'inline-flex min-h-8 items-center rounded-full px-3.5 text-sm font-bold tracking-wide',
-        emphasize ? 'shadow-[0_12px_24px_-20px_rgba(15,23,42,0.8)]' : '',
+        emphasize ? 'shadow-[0_20px_40px_rgba(44,47,48,0.06)]' : '',
         statusStyle[status],
       )}
     >

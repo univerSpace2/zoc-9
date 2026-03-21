@@ -25,6 +25,7 @@ import {
   stripRefereeFromTeamSelections,
   type PositionMap,
 } from '@/features/meetings/lib/match-form'
+import { ERR, FORMAT_LABEL } from '@/lib/constants'
 import { apiCreateMatch, apiGetMeeting, apiListMatches, apiListMembers, queryKeys } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
 import type { MatchFormat, SetPositionSnapshot, TeamSize } from '@/types/domain'
@@ -91,11 +92,6 @@ const schema = z
 type FormValues = z.infer<typeof schema>
 type FormInput = z.input<typeof schema>
 
-const formatLabel: Record<MatchFormat, string> = {
-  single: '단판',
-  best_of_3: '3판 2선승',
-  best_of_5: '5판 3선승',
-}
 
 function resolveCompletedSetWinnerTeamId(set: {
   status: string
@@ -350,7 +346,7 @@ export function MeetingMatchesPage() {
   const createMatchMutation = useMutation({
     mutationFn: async (values: FormValues) => {
       if (!user || !groupId || !meetingId) {
-        throw new Error('유효한 사용자/그룹/모임이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP_MEETING)
       }
 
       if (meetingQuery.data?.status === 'completed') {
@@ -746,7 +742,7 @@ export function MeetingMatchesPage() {
                   <p className="text-4xl font-display leading-none">
                     {teams[0]?.name} vs {teams[1]?.name}
                   </p>
-                  <p className="text-base text-surface-600">{formatLabel[match.format]}</p>
+                  <p className="text-base text-surface-600">{FORMAT_LABEL[match.format]}</p>
                   <div className="mt-1">
                     <WinnerBadge teamName={winnerTeamName} compact />
                   </div>
@@ -787,7 +783,7 @@ export function MeetingMatchesPage() {
 
                   return (
                     <Link key={set.id} to={`/g/${groupId}/m/${meetingId}/match/${match.id}/set/${set.id}/live`}>
-                      <Card className="rounded-2xl border-surface-200 px-3 py-2">
+                      <Card className="rounded-xl px-3 py-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xl font-black">세트 {set.setNo}</span>
                           <StatusChip status={set.status} />

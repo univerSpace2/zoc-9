@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react'
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 
 type TeamTone = 'a' | 'b'
@@ -23,8 +24,8 @@ interface MemberCapsuleSelectProps {
 }
 
 const teamToneClass: Record<TeamTone, string> = {
-  a: 'border-primary/35 bg-primary/10 text-primary-strong',
-  b: 'border-live/35 bg-live/10 text-[#065f46]',
+  a: 'bg-[#d1fc00]/20 text-[#516200]',
+  b: 'bg-[#0059b6]/15 text-[#0059b6]',
 }
 
 export function MemberCapsuleSelect({
@@ -40,7 +41,7 @@ export function MemberCapsuleSelect({
   error,
   testId,
 }: MemberCapsuleSelectProps) {
-  const selectedSet = new Set(selectedIds)
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
   return (
     <section data-testid={testId} className="space-y-2 rounded-2xl bg-surface-100 px-3 py-3" aria-label={title}>
@@ -67,8 +68,8 @@ export function MemberCapsuleSelect({
               disabled={disabled}
               onClick={() => (onPressMember ?? onToggle)?.(member.id)}
               className={cn(
-                'inline-flex min-h-12 items-center gap-1 rounded-full border px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-55',
-                selected ? teamToneClass[teamTone] : 'border-surface-300 bg-surface text-text-primary',
+                'inline-flex min-h-12 items-center gap-1 rounded-full px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#d1fc00]/40 disabled:cursor-not-allowed disabled:opacity-55',
+                selected ? teamToneClass[teamTone] : 'bg-surface-200 text-text-primary',
               )}
               data-position-no={positionByMemberId?.[member.id] ?? undefined}
             >

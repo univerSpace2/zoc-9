@@ -8,10 +8,12 @@ import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { DeuceBadge } from '@/components/ui/DeuceBadge'
-import { Input } from '@/components/ui/Input'
+import { AdminScoreEditor } from '@/features/meetings/components/AdminScoreEditor'
+import { RallyLog } from '@/features/meetings/components/RallyLog'
 import { MemberCapsuleSelect } from '@/components/ui/MemberCapsuleSelect'
 import { PositionPickerSheet } from '@/components/ui/PositionPickerSheet'
-import { ScoreBoard } from '@/components/ui/ScoreBoard'
+import { FloatingController } from '@/components/ui/FloatingController'
+import { ScoreBoardLive } from '@/components/ui/ScoreBoard'
 import { SelectField } from '@/components/ui/SelectField'
 import { StatusChip } from '@/components/ui/StatusChip'
 import { WinnerBadge } from '@/components/ui/WinnerBadge'
@@ -104,7 +106,7 @@ export function SetLivePage() {
   })
 
   const permissionQuery = useQuery({
-    queryKey: ['permission', user?.id, groupId, 'edit_completed_records'],
+    queryKey: queryKeys.permission(user?.id ?? '', groupId ?? '', 'edit_completed_records'),
     queryFn: () => apiHasPermission(user!.id, groupId!, 'edit_completed_records'),
     enabled: Boolean(user && groupId),
   })
@@ -561,7 +563,7 @@ export function SetLivePage() {
   return (
     <PageFrame className="space-y-4 pt-6">
       {readOnly ? (
-        <Card className="space-y-2 border-warning/30 bg-[#FFFBEB]" tone="warning">
+        <Card className="space-y-2" tone="warning">
           <p className="text-lg font-black text-warning">읽기 전용 상태</p>
           <p className="text-base text-warning">완료되었거나 종료된 경기라 득점 입력이 잠겨 있습니다.</p>
         </Card>
@@ -575,22 +577,25 @@ export function SetLivePage() {
         <p className="text-xl text-surface-700">
           목표 {set.targetScore}점 · 듀스 {set.deuce ? '적용' : '미적용'} · 포지션 {set.teamSize}인
         </p>
-        <ScoreBoard
+        <ScoreBoardLive
           teamAName={teamAName}
           teamBName={teamBName}
           teamAScore={teamAScore}
           teamBScore={teamBScore}
           servingTeam={servingTeamKey}
           winnerTeam={winnerTeamKey}
+          onScoreA={() => rallyMutation.mutate(teamAId)}
+          onScoreB={() => rallyMutation.mutate(teamBId)}
+          disabled={rallyMutation.isPending || readOnly || set.status !== 'in_progress'}
         />
-        <Card className="rounded-2xl border-surface-200 bg-surface-50/60 px-3 py-2">
+        <Card className="rounded-xl bg-surface-200 px-3 py-2">
           <details>
             <summary className="cursor-pointer text-lg font-black text-surface-800">
               멤버 보기 {resolvedCurrentSetPositions.predicted ? '(예상)' : ''}
             </summary>
             <div className="mt-2 grid grid-cols-2 gap-2">
               {[teamAId, teamBId].map((teamId) => (
-                <div key={teamId} className="rounded-xl border border-surface-200 bg-white px-2 py-1.5">
+                <div key={teamId} className="rounded-xl bg-surface-50 px-2 py-1.5">
                   <p className="text-sm font-semibold text-surface-700">{teamNameMap.get(teamId)}</p>
                   {(teamRosterMap.get(teamId) ?? []).length ? (
                     <div className="mt-1 space-y-0.5">
@@ -667,83 +672,68 @@ export function SetLivePage() {
         </Card>
       ) : null}
 
-      <Card className="space-y-3" tone="info">
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            intent="secondary"
-            size="lg"
-            fullWidth
-            disabled={rallyMutation.isPending || readOnly || set.status !== 'in_progress'}
-            onClick={() => rallyMutation.mutate(teamAId)}
-          >
-            {teamAName} +1 ({teamAScore})
-          </Button>
-          <Button
-            intent="secondary"
-            size="lg"
-            fullWidth
-            disabled={rallyMutation.isPending || readOnly || set.status !== 'in_progress'}
-            onClick={() => rallyMutation.mutate(teamBId)}
-          >
-            {teamBName} +1 ({teamBScore})
-          </Button>
-        </div>
-
-        {set.status === 'pending' ? <p className="text-base font-semibold text-surface-700">세트를 먼저 시작하세요.</p> : null}
-        {readOnly ? <p className="text-base font-semibold text-surface-700">완료된 기록은 기본 수정 불가입니다.</p> : null}
-        {rallyMutation.error ? <p className="text-base text-danger">{(rallyMutation.error as Error).message}</p> : null}
-      </Card>
-
-      {readOnly && canEditCompleted ? (
-        <Card className="space-y-3 border-red-200">
-          <h2 className="text-2xl font-black">관리자 예외 수정</h2>
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              label={`${teamAName} 점수`}
-              type="number"
-              value={manualScore.teamA}
-              onChange={(event) => setManualScore((prev) => ({ ...prev, teamA: event.target.value }))}
-            />
-            <Input
-              label={`${teamBName} 점수`}
-              type="number"
-              value={manualScore.teamB}
-              onChange={(event) => setManualScore((prev) => ({ ...prev, teamB: event.target.value }))}
-            />
+      {set.status === 'in_progress' && !readOnly ? (
+        <FloatingController>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-center">
+              <p className="text-xs font-bold uppercase tracking-wider text-surface-600">ATTACK</p>
+              <p className="font-display text-2xl font-bold text-text-primary">
+                {set.events.filter((e) => e.scoringTeamId === set.servingTeamId).length}
+              </p>
+            </div>
+            <div className="flex flex-1 items-center justify-center gap-2">
+              <Button
+                intent="primary"
+                size="sm"
+                onClick={() => {
+                  const nextManualScore = { teamA: String(teamAScore), teamB: String(teamBScore) }
+                  setManualScore(nextManualScore)
+                }}
+              >
+                수동 점수 수정
+              </Button>
+              <Button intent="secondary" size="sm">
+                세트 종료
+              </Button>
+              <Button intent="danger" size="sm">
+                경기중단
+              </Button>
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-bold uppercase tracking-wider text-surface-600">ERROR</p>
+              <p className="font-display text-2xl font-bold text-text-primary">
+                {set.events.filter((e) => e.scoringTeamId !== set.servingTeamId).length}
+              </p>
+            </div>
           </div>
-          <Button intent="danger" size="lg" fullWidth onClick={() => editMutation.mutate()} disabled={editMutation.isPending}>
-            완료 기록 수정
-          </Button>
-          {manualError ? <p className="text-base text-danger">{manualError}</p> : null}
+          {rallyMutation.error ? <p className="mt-2 text-sm text-danger">{(rallyMutation.error as Error).message}</p> : null}
+        </FloatingController>
+      ) : null}
+
+      {set.status === 'pending' ? (
+        <Card className="space-y-2">
+          <p className="text-base font-semibold text-surface-700">세트를 먼저 시작하세요.</p>
+        </Card>
+      ) : null}
+      {readOnly ? (
+        <Card className="space-y-2">
+          <p className="text-base font-semibold text-surface-700">완료된 기록은 기본 수정 불가입니다.</p>
         </Card>
       ) : null}
 
-      <Card className="space-y-2">
-        <h2 className="text-3xl font-black">득점 로그</h2>
-        {set.events.length ? (
-          <div className="space-y-1">
-            {set.events
-              .slice()
-              .reverse()
-              .map((event) => {
-                const beforePosition = event.servingPositionBefore ?? 1
-                const afterPosition = event.servingPositionAfter ?? 1
+      {readOnly && canEditCompleted ? (
+        <AdminScoreEditor
+          teamAName={teamAName}
+          teamBName={teamBName}
+          manualScore={manualScore}
+          onScoreChange={setManualScore}
+          onSubmit={() => editMutation.mutate()}
+          isPending={editMutation.isPending}
+          error={manualError}
+        />
+      ) : null}
 
-                return (
-                  <div key={event.clientEventId} className="rounded-xl bg-surface-100 px-3 py-2 text-sm">
-                    <p className="text-lg font-black">{teamNameMap.get(event.scoringTeamId)} 득점</p>
-                    <p>
-                      {new Date(event.occurredAt).toLocaleTimeString('ko-KR')} · 서브 {teamNameMap.get(event.servingTeamIdBefore)}{' '}
-                      {beforePosition}번 → {teamNameMap.get(event.servingTeamIdAfter)} {afterPosition}번
-                    </p>
-                  </div>
-                )
-              })}
-          </div>
-        ) : (
-          <p className="text-base text-surface-700">아직 득점 기록이 없습니다.</p>
-        )}
-      </Card>
+      <RallyLog events={set.events} teamNameMap={teamNameMap} />
 
       {startConfirmOpen
         ? createPortal(
@@ -757,12 +747,12 @@ export function SetLivePage() {
                   setStartConfirmError(null)
                 }}
               />
-              <div className="absolute inset-x-0 bottom-0 rounded-t-[1.75rem] border-t border-surface-200 bg-surface pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-28px_44px_-30px_rgba(15,23,42,0.45)]">
+              <div className="absolute inset-x-0 bottom-0 rounded-t-xl bg-surface-50 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
                 <div className="flex items-center justify-between px-5 py-4">
                   <p className="text-xl font-bold text-text-primary">세트 {set.setNo} 시작 전 포지션 확인</p>
                   <button
                     type="button"
-                    className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-2xl border border-surface-200 bg-surface-50 text-surface-700"
+                    className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-[0.75rem] bg-surface-200 text-surface-700"
                     onClick={() => {
                       setStartConfirmOpen(false)
                       setStartConfirmError(null)

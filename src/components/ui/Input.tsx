@@ -13,8 +13,8 @@ export function Input({ label, className, error, helperText, ...props }: InputPr
       <span className="leading-tight">{label}</span>
       <input
         className={cn(
-          'min-h-[52px] w-full rounded-2xl border border-surface-300 bg-surface px-4 py-2 text-base leading-snug text-text-primary outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/20',
-          error && 'border-danger focus:border-danger focus:ring-danger/15',
+          'min-h-14 w-full rounded-[0.75rem] bg-surface-200 ring-1 ring-[#abadae]/15 px-4 py-2 text-base leading-snug text-text-primary outline-none transition focus:ring-2 focus:ring-[#516200]/30',
+          error && 'ring-2 ring-danger/30 focus:ring-danger/30',
           className,
         )}
         {...props}

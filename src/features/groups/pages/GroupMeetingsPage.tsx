@@ -17,6 +17,7 @@ import {
   apiUpdateMeetingStatus,
   queryKeys,
 } from '@/services/api'
+import { ERR } from '@/lib/constants'
 import { useAuthStore } from '@/store/auth-store'
 
 const schema = z.object({
@@ -78,7 +79,7 @@ export function GroupMeetingsPage() {
   const createMutation = useMutation({
     mutationFn: async (values: FormValues) => {
       if (!user || !groupId) {
-        throw new Error('유효한 사용자/그룹이 필요합니다.')
+        throw new Error(ERR.INVALID_USER_GROUP)
       }
 
       const participantIds = values.participantIds.length > 0 ? values.participantIds : [user.id]
@@ -102,7 +103,7 @@ export function GroupMeetingsPage() {
   const statusMutation = useMutation({
     mutationFn: async ({ meetingId, status }: { meetingId: string; status: 'scheduled' | 'in_progress' | 'completed' }) => {
       if (!user) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiUpdateMeetingStatus(user.id, meetingId, status)
@@ -145,7 +146,7 @@ export function GroupMeetingsPage() {
             {membersQuery.data?.length ? (
               <div className="grid grid-cols-2 gap-2">
                 {membersQuery.data.map((member) => (
-                  <label key={member.id} className="flex min-h-12 items-center gap-2 rounded-xl border border-surface-200 bg-surface px-2 text-sm">
+                  <label key={member.id} className="flex min-h-12 items-center gap-2 rounded-xl bg-surface-200 px-2 text-sm">
                     <input className="h-5 w-5" type="checkbox" value={member.profileId} {...register('participantIds')} />
                     <span className="font-semibold">{member.profile.name}</span>
                   </label>

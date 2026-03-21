@@ -4,6 +4,7 @@ import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { StatusChip } from '@/components/ui/StatusChip'
+import { ERR } from '@/lib/constants'
 import { apiGetMeetingDetail, apiUpdateMeetingStatus, queryKeys } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
 
@@ -21,7 +22,7 @@ export function MeetingInfoPage() {
   const completeMutation = useMutation({
     mutationFn: async () => {
       if (!user || !meetingId) {
-        throw new Error('로그인이 필요합니다.')
+        throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiUpdateMeetingStatus(user.id, meetingId, 'completed')
