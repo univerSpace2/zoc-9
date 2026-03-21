@@ -7,6 +7,50 @@ as $$
   from generate_series(1, 5);
 $$;
 
+-- Update rpc_accept_invite: keep invite as 'pending' so multiple users can join with the same code
+create or replace function public.rpc_accept_invite(invite_token text)
+returns uuid
+language plpgsql
+security definer
+as $$
+declare
+  v_invite public.invites;
+  v_profile_id uuid;
+begin
+  v_profile_id := auth.uid();
+
+  if v_profile_id is null then
+    raise exception '로그인이 필요합니다.';
+  end if;
+
+  select * into v_invite
+  from public.invites
+  where token = invite_token
+  limit 1;
+
+  if v_invite.id is null then
+    raise exception '초대를 찾을 수 없습니다.';
+  end if;
+
+  if v_invite.status <> 'pending' then
+    raise exception '이미 처리된 초대입니다.';
+  end if;
+
+  if v_invite.expires_at < now() then
+    update public.invites set status = 'expired' where id = v_invite.id;
+    raise exception '만료된 초대입니다.';
+  end if;
+
+  insert into public.group_members (group_id, profile_id, role, permissions)
+  values (v_invite.group_id, v_profile_id, v_invite.role, public.default_permissions_for_role(v_invite.role))
+  on conflict (group_id, profile_id) do nothing;
+
+  -- Do NOT change invite status to 'accepted' — keep it reusable until expiration
+
+  return v_invite.group_id;
+end;
+$$;
+
 -- Update rpc_reissue_invite to use short invite code
 create or replace function public.rpc_reissue_invite(invite_id uuid, expires_in_days int default 7)
 returns uuid

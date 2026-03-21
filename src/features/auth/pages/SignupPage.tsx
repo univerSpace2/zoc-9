@@ -25,10 +25,6 @@ export function SignupPage() {
   const setUser = useAuthStore((state) => state.setUser)
   const setInitialized = useAuthStore((state) => state.setInitialized)
 
-  if (user) {
-    return <Navigate to="/groups" replace />
-  }
-
   const {
     register,
     handleSubmit,
@@ -52,6 +48,10 @@ export function SignupPage() {
       navigate('/groups', { replace: true })
     },
   })
+
+  if (user) {
+    return <Navigate to="/groups" replace />
+  }
 
   return (
     <PageFrame className="flex min-h-screen flex-col pt-10">

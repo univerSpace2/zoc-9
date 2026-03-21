@@ -24,10 +24,6 @@ export function LoginPage() {
   const setInitialized = useAuthStore((state) => state.setInitialized)
   const fromPath = (location.state as { from?: string } | null)?.from
 
-  if (user) {
-    return <Navigate to={fromPath ?? '/groups'} replace />
-  }
-
   const {
     register,
     handleSubmit,
@@ -48,6 +44,10 @@ export function LoginPage() {
       navigate(fromPath ?? '/groups', { replace: true })
     },
   })
+
+  if (user) {
+    return <Navigate to={fromPath ?? '/groups'} replace />
+  }
 
   return (
     <PageFrame className="flex min-h-screen flex-col pt-10">

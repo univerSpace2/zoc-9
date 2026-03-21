@@ -566,8 +566,6 @@ export async function acceptInvite(profileId: string, token: string): Promise<vo
         permissionsOverride: false,
       })
     }
-
-    invite.status = 'accepted'
   })
 }
 
