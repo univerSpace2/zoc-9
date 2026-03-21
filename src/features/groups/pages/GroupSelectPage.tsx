@@ -6,7 +6,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import {
   apiAcceptInvite,

@@ -5,7 +5,7 @@ export function NavigationProgress() {
   const location = useLocation()
   const [progress, setProgress] = useState(0)
   const [visible, setVisible] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
     // Start progress

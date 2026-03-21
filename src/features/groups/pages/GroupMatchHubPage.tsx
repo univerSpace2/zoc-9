@@ -23,7 +23,7 @@ function resolveCompletedSetWinnerTeamId(set: {
 }
 
 function resolveMatchSetWins(
-  match: { requiredSetWins: number },
+  _match: { requiredSetWins: number },
   teams: MatchTeam[],
   sets: SetRecord[],
 ): Map<string, number> {

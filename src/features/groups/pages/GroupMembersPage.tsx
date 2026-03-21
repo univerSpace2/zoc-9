@@ -69,8 +69,6 @@ function getPrimaryPosition(stats: MemberPositionStat[]): number | null {
 
 /** Mini bar chart for position-level stats */
 function MiniBarChart({ stats }: { stats: MemberPositionStat[] }) {
-  const maxSample = Math.max(...stats.map((s) => s.sampleSize), 1)
-
   return (
     <div className="flex items-end gap-1.5" style={{ height: 40 }}>
       {stats.slice(0, 6).map((stat, i) => {
