@@ -58,7 +58,9 @@ import {
   recordRally,
   registerUser,
   startSetByIdWithServingTeam,
+  deleteMeeting,
   getMeetingDetail,
+  updateMeeting,
   updateMeetingStatus,
   updateProfile,
 } from '@/services/local-data'
@@ -174,6 +176,7 @@ function mapVenueRow(row: Record<string, unknown>): Venue {
     id: String(row.id),
     groupId: String(row.group_id),
     name: String(row.name),
+    address: row.address ? String(row.address) : undefined,
     reservationRequired: Boolean(row.reservation_required),
     reservationUrl: row.reservation_url ? String(row.reservation_url) : undefined,
   }
@@ -932,7 +935,7 @@ export async function apiGetMeetingDetail(meetingId: string): Promise<MeetingDet
     meeting.venueId
       ? client
           .from('venues')
-          .select('id, group_id, name, reservation_required, reservation_url')
+          .select('id, group_id, name, address, reservation_required, reservation_url')
           .eq('id', meeting.venueId)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -985,6 +988,55 @@ export async function apiGetActiveMeeting(groupId: string): Promise<Meeting | nu
   }
 
   return data ? mapMeetingRow(data) : null
+}
+
+export async function apiUpdateMeeting(
+  meetingId: string,
+  payload: { title?: string; date?: string; startTime?: string; venueId?: string | null; participantIds?: string[] },
+): Promise<Meeting> {
+  if (shouldUseLocalData()) {
+    return updateMeeting(meetingId, payload)
+  }
+
+  const client = ensureSupabase()
+
+  const updateFields: Record<string, unknown> = {}
+  if (payload.title !== undefined) updateFields.title = payload.title
+  if (payload.date !== undefined) updateFields.date = payload.date
+  if (payload.startTime !== undefined) updateFields.start_time = payload.startTime
+  if (payload.venueId !== undefined) updateFields.venue_id = payload.venueId ?? null
+
+  if (Object.keys(updateFields).length > 0) {
+    const { error } = await client.from('meetings').update(updateFields).eq('id', meetingId)
+    if (error) throw new Error(error.message)
+  }
+
+  if (payload.participantIds !== undefined) {
+    const { error: delError } = await client.from('meeting_participants').delete().eq('meeting_id', meetingId)
+    if (delError) throw new Error(delError.message)
+
+    const uniqueIds = Array.from(new Set(payload.participantIds))
+    if (uniqueIds.length > 0) {
+      const { error: insError } = await client.from('meeting_participants').insert(
+        uniqueIds.map((profileId) => ({ meeting_id: meetingId, profile_id: profileId })),
+      )
+      if (insError) throw new Error(insError.message)
+    }
+  }
+
+  const updated = await apiGetMeeting(meetingId)
+  if (!updated) throw new Error('모임을 찾을 수 없습니다.')
+  return updated
+}
+
+export async function apiDeleteMeeting(meetingId: string): Promise<void> {
+  if (shouldUseLocalData()) {
+    return deleteMeeting(meetingId)
+  }
+
+  const client = ensureSupabase()
+  const { error } = await client.from('meetings').delete().eq('id', meetingId)
+  if (error) throw new Error(error.message)
 }
 
 export async function apiListMatches(meetingId: string): Promise<
@@ -1784,7 +1836,7 @@ export async function apiListVenues(groupId: string): Promise<Venue[]> {
   const client = ensureSupabase()
   const { data, error } = await client
     .from('venues')
-    .select('id, group_id, name, reservation_required, reservation_url')
+    .select('id, group_id, name, address, reservation_required, reservation_url')
     .eq('group_id', groupId)
     .order('created_at', { ascending: false })
 
@@ -1797,7 +1849,7 @@ export async function apiListVenues(groupId: string): Promise<Venue[]> {
 
 export async function apiCreateVenue(
   actorId: string,
-  payload: { groupId: string; name: string; reservationRequired: boolean; reservationUrl?: string },
+  payload: { groupId: string; name: string; address?: string; reservationRequired: boolean; reservationUrl?: string },
 ): Promise<Venue> {
   void actorId
 
@@ -1810,6 +1862,7 @@ export async function apiCreateVenue(
     payload: {
       groupId: payload.groupId,
       name: payload.name,
+      address: payload.address,
       reservationRequired: payload.reservationRequired,
       reservationUrl: payload.reservationUrl,
     },
@@ -1821,7 +1874,7 @@ export async function apiCreateVenue(
 
   const { data: venueRow, error: venueError } = await client
     .from('venues')
-    .select('id, group_id, name, reservation_required, reservation_url')
+    .select('id, group_id, name, address, reservation_required, reservation_url')
     .eq('id', String(venueId))
     .single()
 
@@ -1835,7 +1888,7 @@ export async function apiCreateVenue(
 export async function apiUpdateVenue(
   actorId: string,
   venueId: string,
-  payload: { name: string; reservationRequired: boolean; reservationUrl?: string },
+  payload: { name: string; address?: string; reservationRequired: boolean; reservationUrl?: string },
 ): Promise<Venue> {
   void actorId
 
@@ -1848,6 +1901,7 @@ export async function apiUpdateVenue(
     payload: {
       venueId,
       name: payload.name,
+      address: payload.address,
       reservationRequired: payload.reservationRequired,
       reservationUrl: payload.reservationUrl,
     },
@@ -1859,7 +1913,7 @@ export async function apiUpdateVenue(
 
   const { data: venueRow, error: venueError } = await client
     .from('venues')
-    .select('id, group_id, name, reservation_required, reservation_url')
+    .select('id, group_id, name, address, reservation_required, reservation_url')
     .eq('id', venueId)
     .single()
 

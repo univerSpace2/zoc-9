@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { MapPin } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { useParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -21,6 +22,7 @@ import { useAuthStore } from '@/store/auth-store'
 
 const venueSchema = z.object({
   name: z.string().min(2, '구장 이름을 입력하세요.'),
+  address: z.string().optional().or(z.literal('')),
   reservationRequired: z.boolean(),
   reservationUrl: z.string().url('올바른 URL을 입력하세요.').optional().or(z.literal('')),
 })
@@ -48,6 +50,7 @@ export function GroupVenuesPage() {
     resolver: zodResolver(venueSchema),
     defaultValues: {
       name: '',
+      address: '',
       reservationRequired: false,
       reservationUrl: '',
     },
@@ -62,24 +65,26 @@ export function GroupVenuesPage() {
       return apiCreateVenue(user.id, {
         groupId,
         name: values.name,
+        address: values.address?.trim() || undefined,
         reservationRequired: values.reservationRequired,
         reservationUrl: values.reservationUrl?.trim() || undefined,
       })
     },
     onSuccess: async () => {
-      venueForm.reset({ name: '', reservationRequired: false, reservationUrl: '' })
+      venueForm.reset({ name: '', address: '', reservationRequired: false, reservationUrl: '' })
       await queryClient.invalidateQueries({ queryKey: queryKeys.venues(groupId ?? '') })
     },
   })
 
   const updateVenueMutation = useMutation({
-    mutationFn: async (payload: { id: string; name: string; reservationRequired: boolean; reservationUrl?: string }) => {
+    mutationFn: async (payload: { id: string; name: string; address?: string; reservationRequired: boolean; reservationUrl?: string }) => {
       if (!user) {
         throw new Error(ERR.LOGIN_REQUIRED)
       }
 
       return apiUpdateVenue(user.id, payload.id, {
         name: payload.name,
+        address: payload.address,
         reservationRequired: payload.reservationRequired,
         reservationUrl: payload.reservationUrl,
       })
@@ -117,6 +122,7 @@ export function GroupVenuesPage() {
         {canManageVenues ? (
           <form className="space-y-2" onSubmit={venueForm.handleSubmit((values) => createVenueMutation.mutate(values))}>
             <Input label="구장 이름" error={venueForm.formState.errors.name?.message} {...venueForm.register('name')} />
+            <Input label="주소 (선택)" placeholder="서울시 강남구..." error={venueForm.formState.errors.address?.message} {...venueForm.register('address')} />
             <label className="flex min-h-[52px] items-center gap-2 rounded-xl bg-surface-100 px-3 py-2 text-base font-semibold">
               <input className="h-5 w-5" type="checkbox" {...venueForm.register('reservationRequired')} /> 예약 필요
             </label>
@@ -140,6 +146,17 @@ export function GroupVenuesPage() {
       {venuesQuery.data?.map((venue) => (
         <Card key={venue.id} className="space-y-1" tone="info">
           <p className="font-display text-lg font-bold tracking-tight">{venue.name}</p>
+          {venue.address && (
+            <a
+              href={`https://map.naver.com/v5/search/${encodeURIComponent(venue.address)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-sm text-[#516200] underline underline-offset-2"
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              {venue.address}
+            </a>
+          )}
           <p className="text-sm text-surface-700">예약 필요: {venue.reservationRequired ? '예' : '아니오'}</p>
           {venue.reservationUrl ? <p className="break-all text-xs text-surface-600">{venue.reservationUrl}</p> : null}
           {canManageVenues ? (
@@ -153,11 +170,13 @@ export function GroupVenuesPage() {
                     return
                   }
 
+                  const nextAddress = window.prompt('주소 (비워두면 없음)', venue.address ?? '')
                   const nextUrl = window.prompt('예약 URL (비워두면 없음)', venue.reservationUrl ?? '')
 
                   updateVenueMutation.mutate({
                     id: venue.id,
                     name: nextName.trim(),
+                    address: nextAddress?.trim() || undefined,
                     reservationRequired: venue.reservationRequired,
                     reservationUrl: nextUrl?.trim() || undefined,
                   })

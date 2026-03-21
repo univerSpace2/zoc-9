@@ -1033,6 +1033,50 @@ export async function getMeeting(meetingId: string): Promise<Meeting | null> {
   return store.meetings.find((meeting) => meeting.id === meetingId) ?? null
 }
 
+export async function updateMeeting(
+  meetingId: string,
+  payload: { title?: string; date?: string; startTime?: string; venueId?: string | null; participantIds?: string[] },
+): Promise<Meeting> {
+  let updated: Meeting | null = null
+
+  updateStore((draft) => {
+    const meeting = draft.meetings.find((item) => item.id === meetingId)
+    if (!meeting) throw new Error('모임을 찾을 수 없습니다.')
+
+    if (payload.title !== undefined) meeting.title = payload.title
+    if (payload.date !== undefined) meeting.date = payload.date
+    if (payload.startTime !== undefined) meeting.startTime = payload.startTime
+    if (payload.venueId !== undefined) meeting.venueId = payload.venueId ?? undefined
+
+    if (payload.participantIds !== undefined) {
+      draft.meetingParticipants = draft.meetingParticipants.filter((item) => item.meetingId !== meetingId)
+      for (const profileId of Array.from(new Set(payload.participantIds))) {
+        draft.meetingParticipants.push({ id: createId('mp'), meetingId, profileId })
+      }
+    }
+
+    updated = meeting
+  })
+
+  if (!updated) throw new Error('모임 수정에 실패했습니다.')
+  return updated
+}
+
+export async function deleteMeeting(meetingId: string): Promise<void> {
+  updateStore((draft) => {
+    const idx = draft.meetings.findIndex((m) => m.id === meetingId)
+    if (idx === -1) throw new Error('모임을 찾을 수 없습니다.')
+    draft.meetings.splice(idx, 1)
+    draft.meetingParticipants = draft.meetingParticipants.filter((p) => p.meetingId !== meetingId)
+    // cascade: remove matches and related data
+    const matchIds = draft.matches.filter((m) => m.meetingId === meetingId).map((m) => m.id)
+    draft.matches = draft.matches.filter((m) => m.meetingId !== meetingId)
+    draft.sets = draft.sets.filter((s) => !matchIds.includes(s.matchId))
+    draft.matchTeams = draft.matchTeams.filter((t) => !matchIds.includes(t.matchId))
+    draft.matchPlayers = draft.matchPlayers.filter((p) => !matchIds.includes(p.matchId))
+  })
+}
+
 export async function getActiveMeetingByGroup(groupId: string): Promise<Meeting | null> {
   const store = loadStore()
   const active = store.meetings

@@ -78,6 +78,7 @@ export interface Venue {
   id: string
   groupId: string
   name: string
+  address?: string
   reservationRequired: boolean
   reservationUrl?: string
 }
