@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw, X } from 'lucide-react'
+import { DragPositionList } from '@/components/ui/DragPositionList'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -9,15 +10,11 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { AdminScoreEditor } from '@/features/meetings/components/AdminScoreEditor'
 import { RallyLog } from '@/features/meetings/components/RallyLog'
-import { MemberCapsuleSelect } from '@/components/ui/MemberCapsuleSelect'
-import { PositionPickerSheet } from '@/components/ui/PositionPickerSheet'
 import { SelectField } from '@/components/ui/SelectField'
 import { WinnerBadge } from '@/components/ui/WinnerBadge'
 import {
-  assignMemberPositionWithSwap,
   isCompleteTeamPositionAssignment,
   normalizeTeamPositionMap,
-  toTeamPositionAssignments,
   type PositionMap,
 } from '@/features/meetings/lib/match-form'
 import { enqueueRallyEvent, listQueuedRallyEvents, removeQueuedRallyEvent } from '@/lib/offline-queue'
@@ -25,20 +22,22 @@ import { applyRally } from '@/lib/rules-engine'
 import { createId, nowIso } from '@/lib/utils'
 import { useVisibilityAndOnlineSync } from '@/lib/visibility-sync'
 import {
+  apiAbortMatch,
   apiEditCompletedSet,
+  apiForceEndSet,
   apiGetMeeting,
   apiGetSet,
   apiHasPermission,
   apiListMembers,
   apiRecordRally,
   apiStartSet,
+  apiUndoLastRally,
+  apiUpdateSetPositions,
   queryKeys,
 } from '@/services/api'
 import { useAuthStore } from '@/store/auth-store'
 import { useUiStore } from '@/store/ui-store'
 import type { SetPositionSnapshot, TeamPositionAssignments } from '@/types/domain'
-
-const EMPTY_DISABLED_IDS = new Set<string>()
 
 const scoreSchema = z.object({
   teamA: z.coerce.number().min(0).max(99),
@@ -69,7 +68,7 @@ function buildPositionMapByTeam(teamId: string, snapshots: SetPositionSnapshot[]
 }
 
 export function SetLivePage() {
-  const { groupId, meetingId, setId } = useParams<{
+  const { groupId, meetingId, matchId, setId } = useParams<{
     groupId: string
     meetingId: string
     matchId: string
@@ -88,11 +87,13 @@ export function SetLivePage() {
   const [startConfirmOpen, setStartConfirmOpen] = useState(false)
   const [startConfirmError, setStartConfirmError] = useState<string | null>(null)
   const [confirmServingTeamId, setConfirmServingTeamId] = useState<string>('')
-  const [confirmTeamAPositionMap, setConfirmTeamAPositionMap] = useState<PositionMap>({})
-  const [confirmTeamBPositionMap, setConfirmTeamBPositionMap] = useState<PositionMap>({})
-  const [confirmPickerState, setConfirmPickerState] = useState<{ team: 'A' | 'B'; memberId: string } | null>(null)
-  const confirmTeamAPositionMapRef = useRef<PositionMap>({})
-  const confirmTeamBPositionMapRef = useRef<PositionMap>({})
+  const [confirmTeamAOrder, setConfirmTeamAOrder] = useState<string[]>([])
+  const [confirmTeamBOrder, setConfirmTeamBOrder] = useState<string[]>([])
+  const [showPositionChange, setShowPositionChange] = useState(false)
+  const [posChangeTeamAOrder, setPosChangeTeamAOrder] = useState<string[]>([])
+  const [posChangeTeamBOrder, setPosChangeTeamBOrder] = useState<string[]>([])
+  const [showEndSetConfirm, setShowEndSetConfirm] = useState(false)
+  const [showAbortConfirm, setShowAbortConfirm] = useState(false)
 
   const setQuery = useQuery({
     queryKey: queryKeys.set(setId ?? ''),
@@ -324,6 +325,60 @@ export function SetLivePage() {
     },
   })
 
+  const undoMutation = useMutation({
+    mutationFn: async () => {
+      if (!setId) throw new Error('세트를 찾을 수 없습니다.')
+      return apiUndoLastRally(setId)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.set(setId ?? '') })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.matches(meetingId ?? '') })
+    },
+  })
+
+  const forceEndMutation = useMutation({
+    mutationFn: async () => {
+      if (!setId) throw new Error('세트를 찾을 수 없습니다.')
+      return apiForceEndSet(setId)
+    },
+    onSuccess: async () => {
+      setShowEndSetConfirm(false)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.set(setId ?? '') })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.matches(meetingId ?? '') })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.stats(meetingId ?? '') })
+    },
+  })
+
+  const abortMutation = useMutation({
+    mutationFn: async () => {
+      if (!matchId) throw new Error('매치를 찾을 수 없습니다.')
+      return apiAbortMatch(matchId)
+    },
+    onSuccess: async () => {
+      setShowAbortConfirm(false)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.set(setId ?? '') })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.matches(meetingId ?? '') })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.stats(meetingId ?? '') })
+    },
+  })
+
+  const positionChangeMutation = useMutation({
+    mutationFn: async () => {
+      if (!setId) throw new Error('세트를 찾을 수 없습니다.')
+      const orderedToAssignments = (orderedIds: string[]) =>
+        orderedIds.map((profileId, idx) => ({ profileId, positionNo: idx + 1 }))
+      const assignments: TeamPositionAssignments = {
+        teamA: orderedToAssignments(posChangeTeamAOrder),
+        teamB: orderedToAssignments(posChangeTeamBOrder),
+      }
+      return apiUpdateSetPositions(setId, assignments)
+    },
+    onSuccess: async () => {
+      setShowPositionChange(false)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.set(setId ?? '') })
+    },
+  })
+
   const payload = setQuery.data
 
   const teamNameMap = useMemo(() => {
@@ -471,6 +526,9 @@ export function SetLivePage() {
       ? teamRosterMap.get(set.servingTeamId)?.find((player) => player.positionNo === servingPosition)?.name
       : undefined
 
+  const posMapToOrdered = (ids: string[], posMap: PositionMap) =>
+    [...ids].sort((a, b) => (posMap[a] ?? 99) - (posMap[b] ?? 99))
+
   const openStartConfirmation = () => {
     const previousSet = sets.find((item) => item.setNo === set.setNo - 1)
     if (!previousSet || (previousSet.status !== 'completed' && previousSet.status !== 'ignored')) {
@@ -480,80 +538,37 @@ export function SetLivePage() {
 
     const resolved = resolvePositionMapsForTargetSet(set.id, set.setNo, set.teamSize)
     setConfirmServingTeamId(selectedServingTeamId || set.initialServingTeamId)
-    setConfirmTeamAPositionMap(resolved.teamAPositionMap)
-    setConfirmTeamBPositionMap(resolved.teamBPositionMap)
-    confirmTeamAPositionMapRef.current = resolved.teamAPositionMap
-    confirmTeamBPositionMapRef.current = resolved.teamBPositionMap
+    setConfirmTeamAOrder(posMapToOrdered(teamAMemberIds, resolved.teamAPositionMap))
+    setConfirmTeamBOrder(posMapToOrdered(teamBMemberIds, resolved.teamBPositionMap))
     setStartConfirmError(null)
     setStartConfirmOpen(true)
   }
 
-  const handleConfirmPositionSelection = (positionNo: number) => {
-    if (!confirmPickerState) {
-      return
-    }
-
-    if (confirmPickerState.team === 'A') {
-      const next = assignMemberPositionWithSwap({
-        selectedIds: teamAMemberIds,
-        positionMap: confirmTeamAPositionMap,
-        memberId: confirmPickerState.memberId,
-        positionNo,
-        teamSize: set.teamSize,
-      })
-      setConfirmTeamAPositionMap(next.positionMap)
-      confirmTeamAPositionMapRef.current = next.positionMap
-      return
-    }
-
-    const next = assignMemberPositionWithSwap({
-      selectedIds: teamBMemberIds,
-      positionMap: confirmTeamBPositionMap,
-      memberId: confirmPickerState.memberId,
-      positionNo,
-      teamSize: set.teamSize,
-    })
-    setConfirmTeamBPositionMap(next.positionMap)
-    confirmTeamBPositionMapRef.current = next.positionMap
-  }
-
   const handleConfirmStart = () => {
     setStartConfirmError(null)
-    const teamAMap = normalizeTeamPositionMap(teamAMemberIds, confirmTeamAPositionMapRef.current, set.teamSize)
-    const teamBMap = normalizeTeamPositionMap(teamBMemberIds, confirmTeamBPositionMapRef.current, set.teamSize)
 
-    if (!isCompleteTeamPositionAssignment(teamAMemberIds, teamAMap, set.teamSize)) {
+    if (confirmTeamAOrder.length < set.teamSize) {
       setStartConfirmError('A팀 포지션을 모두 지정하세요.')
       return
     }
 
-    if (!isCompleteTeamPositionAssignment(teamBMemberIds, teamBMap, set.teamSize)) {
+    if (confirmTeamBOrder.length < set.teamSize) {
       setStartConfirmError('B팀 포지션을 모두 지정하세요.')
       return
     }
 
+    const orderedToAssignments = (orderedIds: string[]) =>
+      orderedIds.map((profileId, idx) => ({ profileId, positionNo: idx + 1 }))
+
     const assignments: TeamPositionAssignments = {
-      teamA: toTeamPositionAssignments(teamAMemberIds, teamAMap, set.teamSize),
-      teamB: toTeamPositionAssignments(teamBMemberIds, teamBMap, set.teamSize),
+      teamA: orderedToAssignments(confirmTeamAOrder),
+      teamB: orderedToAssignments(confirmTeamBOrder),
     }
 
     startMutation.mutate({
       firstServingTeamId: confirmServingTeamId || set.initialServingTeamId,
       positionAssignments: assignments,
     })
-  }
-
-  const confirmPickerPositionMap = confirmPickerState?.team === 'A' ? confirmTeamAPositionMap : confirmTeamBPositionMap
-  let confirmPickerOccupancy: Record<number, string> = {}
-  if (confirmPickerState) {
-    const source = confirmPickerState.team === 'A' ? confirmTeamAPositionMap : confirmTeamBPositionMap
-    const occupancy: Record<number, string> = {}
-
-    for (const [profileId, positionNo] of Object.entries(source)) {
-      occupancy[positionNo] = memberNameMap.get(profileId) ?? profileId
-    }
-
-    confirmPickerOccupancy = occupancy
   }
 
   const attackCount = set.events.filter((e) => e.scoringTeamId === set.servingTeamId).length
@@ -609,9 +624,10 @@ export function SetLivePage() {
             <div className="mt-4 flex w-full gap-2">
               <button
                 type="button"
-                disabled={!canScore}
+                onClick={() => undoMutation.mutate()}
+                disabled={!canScore || set.events.length === 0 || undoMutation.isPending}
                 className="flex h-14 flex-1 items-center justify-center rounded-xl bg-surface-300 text-surface-700 transition active:scale-90 disabled:opacity-40"
-                aria-label={`${teamAName} 감점`}
+                aria-label={`되돌리기`}
               >
                 <span className="text-xl font-bold">−</span>
               </button>
@@ -662,9 +678,10 @@ export function SetLivePage() {
             <div className="mt-4 flex w-full gap-2">
               <button
                 type="button"
-                disabled={!canScore}
+                onClick={() => undoMutation.mutate()}
+                disabled={!canScore || set.events.length === 0 || undoMutation.isPending}
                 className="flex h-14 flex-1 items-center justify-center rounded-xl bg-surface-300 text-surface-700 transition active:scale-90 disabled:opacity-40"
-                aria-label={`${teamBName} 감점`}
+                aria-label={`되돌리기`}
               >
                 <span className="text-xl font-bold">−</span>
               </button>
@@ -811,26 +828,68 @@ export function SetLivePage() {
           <div className="flex justify-between gap-2 rounded-[2rem] bg-white/80 p-3 shadow-[0_20px_50px_rgba(0,0,0,0.15)] backdrop-blur-2xl">
             <button
               type="button"
-              onClick={() => setManualScore({ teamA: String(teamAScore), teamB: String(teamBScore) })}
+              onClick={() => {
+                setShowPositionChange(true)
+                // Convert positionMap to ordered array (sorted by position number)
+                const toOrdered = (ids: string[], posMap: PositionMap) =>
+                  [...ids].sort((a, b) => (posMap[a] ?? 99) - (posMap[b] ?? 99))
+                setPosChangeTeamAOrder(toOrdered(teamAMemberIds, resolvedCurrentSetPositions.teamAPositionMap))
+                setPosChangeTeamBOrder(toOrdered(teamBMemberIds, resolvedCurrentSetPositions.teamBPositionMap))
+              }}
               className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-surface-300/50 py-4 transition hover:bg-surface-300"
             >
-              <span className="text-base">✏️</span>
-              <span className="text-[10px] font-bold text-surface-700">수동 점수 수정</span>
+              <RefreshCw className="h-4 w-4 text-surface-700" />
+              <span className="text-[10px] font-bold text-surface-700">포지션 변경</span>
             </button>
             <button
               type="button"
+              onClick={() => setShowEndSetConfirm(true)}
               className="flex flex-[1.5] flex-col items-center gap-1 rounded-2xl py-4 shadow-inner"
               style={{ background: 'linear-gradient(135deg, #516200 0%, #d1fc00 100%)' }}
             >
               <span className="text-base">✅</span>
               <span className="text-[10px] font-black text-[#3c4a00]">세트 종료</span>
             </button>
-            <button type="button" className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-danger/10 py-4 transition hover:bg-danger/20">
+            <button
+              type="button"
+              onClick={() => setShowAbortConfirm(true)}
+              className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-danger/10 py-4 transition hover:bg-danger/20"
+            >
               <span className="text-base">⏸️</span>
               <span className="text-[10px] font-bold text-danger">경기중단</span>
             </button>
           </div>
           {rallyMutation.error && <p className="mt-2 text-center text-sm text-danger">{(rallyMutation.error as Error).message}</p>}
+
+          {/* End Set Confirmation */}
+          {showEndSetConfirm && (
+            <div className="mt-2 space-y-2 rounded-2xl bg-white p-4 shadow-lg">
+              <p className="text-sm font-bold text-text-primary">현재 점수로 세트를 종료하시겠습니까?</p>
+              <p className="text-xs text-surface-600">{teamAName} {teamAScore} : {teamBScore} {teamBName}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button intent="neutral" size="sm" fullWidth onClick={() => setShowEndSetConfirm(false)}>취소</Button>
+                <Button intent="primary" size="sm" fullWidth onClick={() => forceEndMutation.mutate()} disabled={forceEndMutation.isPending}>
+                  {forceEndMutation.isPending ? '종료 중...' : '세트 종료'}
+                </Button>
+              </div>
+              {forceEndMutation.error && <p className="text-xs text-danger">{(forceEndMutation.error as Error).message}</p>}
+            </div>
+          )}
+
+          {/* Abort Match Confirmation */}
+          {showAbortConfirm && (
+            <div className="mt-2 space-y-2 rounded-2xl bg-white p-4 shadow-lg">
+              <p className="text-sm font-bold text-danger">경기를 중단하시겠습니까?</p>
+              <p className="text-xs text-surface-600">현재 세트와 매치가 모두 종료됩니다.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button intent="neutral" size="sm" fullWidth onClick={() => setShowAbortConfirm(false)}>취소</Button>
+                <Button intent="danger" size="sm" fullWidth onClick={() => abortMutation.mutate()} disabled={abortMutation.isPending}>
+                  {abortMutation.isPending ? '중단 중...' : '경기 중단'}
+                </Button>
+              </div>
+              {abortMutation.error && <p className="text-xs text-danger">{(abortMutation.error as Error).message}</p>}
+            </div>
+          )}
         </div>
       )}
 
@@ -861,7 +920,7 @@ export function SetLivePage() {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <div className="max-h-[72vh] space-y-3 overflow-y-auto px-4 pb-2">
+                <div className="max-h-[72vh] space-y-4 overflow-y-auto px-4 pb-2">
                   <SelectField
                     label="첫 서브 팀"
                     value={confirmServingTeamId}
@@ -873,26 +932,22 @@ export function SetLivePage() {
                     disabled={startMutation.isPending}
                   />
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <MemberCapsuleSelect
-                      title="A팀 포지션"
-                      members={teamAMembers}
-                      selectedIds={teamAMemberIds}
-                      disabledIds={EMPTY_DISABLED_IDS}
-                      maxSelectable={set.teamSize}
+                  <p className="text-xs text-surface-600">드래그하여 포지션 순서를 변경하세요. 위에서부터 1번입니다.</p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <DragPositionList
+                      title={teamAName}
                       teamTone="a"
-                      onPressMember={(memberId) => setConfirmPickerState({ team: 'A', memberId })}
-                      positionByMemberId={normalizeTeamPositionMap(teamAMemberIds, confirmTeamAPositionMap, set.teamSize)}
+                      members={teamAMembers}
+                      orderedIds={confirmTeamAOrder}
+                      onChange={setConfirmTeamAOrder}
                     />
-                    <MemberCapsuleSelect
-                      title="B팀 포지션"
-                      members={teamBMembers}
-                      selectedIds={teamBMemberIds}
-                      disabledIds={EMPTY_DISABLED_IDS}
-                      maxSelectable={set.teamSize}
+                    <DragPositionList
+                      title={teamBName}
                       teamTone="b"
-                      onPressMember={(memberId) => setConfirmPickerState({ team: 'B', memberId })}
-                      positionByMemberId={normalizeTeamPositionMap(teamBMemberIds, confirmTeamBPositionMap, set.teamSize)}
+                      members={teamBMembers}
+                      orderedIds={confirmTeamBOrder}
+                      onChange={setConfirmTeamBOrder}
                     />
                   </div>
 
@@ -908,19 +963,63 @@ export function SetLivePage() {
           )
         : null}
 
-      <PositionPickerSheet
-        open={Boolean(confirmPickerState)}
-        title={
-          confirmPickerState
-            ? `${confirmPickerState.team === 'A' ? teamAName : teamBName} · ${memberNameMap.get(confirmPickerState.memberId) ?? '멤버'} 포지션`
-            : '포지션 선택'
-        }
-        maxPosition={set.teamSize}
-        selectedPositionNo={confirmPickerState ? confirmPickerPositionMap[confirmPickerState.memberId] : undefined}
-        occupancyByPosition={confirmPickerOccupancy}
-        onSelect={handleConfirmPositionSelection}
-        onClose={() => setConfirmPickerState(null)}
-      />
+      {/* ── Mid-set Position Change Modal ── */}
+      {showPositionChange && isLive
+        ? createPortal(
+            <div className="fixed inset-0 z-[85]">
+              <button
+                type="button"
+                className="absolute inset-0 bg-surface-900/45"
+                aria-label="포지션 변경 닫기"
+                onClick={() => setShowPositionChange(false)}
+              />
+              <div className="absolute inset-x-0 bottom-0 rounded-t-xl bg-surface-50 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_20px_40px_rgba(44,47,48,0.06)]">
+                <div className="flex items-center justify-between px-5 py-4">
+                  <p className="text-xl font-bold text-text-primary">포지션 변경</p>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-[0.75rem] bg-surface-200 text-surface-700"
+                    onClick={() => setShowPositionChange(false)}
+                    aria-label="닫기"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="max-h-[72vh] space-y-4 overflow-y-auto px-4 pb-2">
+                  <p className="text-xs text-surface-600">드래그하여 포지션 순서를 변경하세요. 위에서부터 1번입니다.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <DragPositionList
+                      title={teamAName}
+                      teamTone="a"
+                      members={teamAMembers}
+                      orderedIds={posChangeTeamAOrder}
+                      onChange={setPosChangeTeamAOrder}
+                    />
+                    <DragPositionList
+                      title={teamBName}
+                      teamTone="b"
+                      members={teamBMembers}
+                      orderedIds={posChangeTeamBOrder}
+                      onChange={setPosChangeTeamBOrder}
+                    />
+                  </div>
+                  {positionChangeMutation.error && (
+                    <p className="text-sm font-semibold text-danger">{(positionChangeMutation.error as Error).message}</p>
+                  )}
+                  <Button
+                    fullWidth size="lg" intent="primary"
+                    onClick={() => positionChangeMutation.mutate()}
+                    disabled={positionChangeMutation.isPending}
+                  >
+                    {positionChangeMutation.isPending ? '저장 중...' : '포지션 변경 확정'}
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
     </PageFrame>
   )
 }

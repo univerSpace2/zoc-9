@@ -58,7 +58,11 @@ import {
   recordRally,
   registerUser,
   startSetByIdWithServingTeam,
+  undoLastRally,
+  updateSetPositions,
+  abortMatch,
   deleteMeeting,
+  forceEndSet,
   getMeetingDetail,
   updateMeeting,
   updateMeetingStatus,
@@ -1402,6 +1406,89 @@ export async function apiEditCompletedSet(
   }
 
   return refreshed.set
+}
+
+export async function apiUndoLastRally(setId: string): Promise<SetRecord> {
+  if (shouldUseLocalData()) {
+    return undoLastRally(setId)
+  }
+
+  const client = ensureSupabase()
+  const { error } = await client.rpc('rpc_undo_last_rally', { set_id: setId })
+  if (error) throw new Error(error.message)
+
+  const refreshed = await apiGetSet(setId)
+  if (!refreshed) throw new Error('세트 갱신 결과를 불러오지 못했습니다.')
+  return refreshed.set
+}
+
+export async function apiForceEndSet(setId: string): Promise<SetRecord> {
+  if (shouldUseLocalData()) {
+    return forceEndSet(setId)
+  }
+
+  const client = ensureSupabase()
+  const { error } = await client.rpc('rpc_force_end_set', { set_id: setId })
+  if (error) throw new Error(error.message)
+
+  const refreshed = await apiGetSet(setId)
+  if (!refreshed) throw new Error('세트 갱신 결과를 불러오지 못했습니다.')
+  return refreshed.set
+}
+
+export async function apiAbortMatch(matchId: string): Promise<void> {
+  if (shouldUseLocalData()) {
+    return abortMatch(matchId)
+  }
+
+  const client = ensureSupabase()
+  const { error } = await client.from('matches').update({ status: 'completed' }).eq('id', matchId)
+  if (error) throw new Error(error.message)
+}
+
+export async function apiUpdateSetPositions(
+  setId: string,
+  positionAssignments: TeamPositionAssignments,
+): Promise<void> {
+  if (shouldUseLocalData()) {
+    return updateSetPositions(setId, positionAssignments)
+  }
+
+  const client = ensureSupabase()
+
+  // Delete existing positions for this set
+  const { error: delError } = await client.from('set_position_snapshots').delete().eq('set_id', setId)
+  if (delError) throw new Error(delError.message)
+
+  // Get set to find match_id and team_ids
+  const refreshed = await apiGetSet(setId)
+  if (!refreshed) throw new Error('세트를 찾을 수 없습니다.')
+
+  const { set, teams } = refreshed
+  const teamAId = teams[0]?.id
+  const teamBId = teams[1]?.id
+
+  const rows = [
+    ...positionAssignments.teamA.map((a) => ({
+      set_id: set.id,
+      match_id: set.matchId,
+      team_id: teamAId,
+      profile_id: a.profileId,
+      position_no: a.positionNo,
+    })),
+    ...positionAssignments.teamB.map((a) => ({
+      set_id: set.id,
+      match_id: set.matchId,
+      team_id: teamBId,
+      profile_id: a.profileId,
+      position_no: a.positionNo,
+    })),
+  ]
+
+  if (rows.length > 0) {
+    const { error: insError } = await client.from('set_position_snapshots').insert(rows)
+    if (insError) throw new Error(insError.message)
+  }
 }
 
 export async function apiListStats(meetingId: string): Promise<MeetingWinStat[]> {

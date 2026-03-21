@@ -1345,6 +1345,106 @@ function finalizeMatchState(draft: LocalDataStore, matchId: string): void {
   }
 }
 
+export async function undoLastRally(setId: string): Promise<SetRecord> {
+  let updated: SetRecord | null = null
+  updateStore((draft) => {
+    const set = draft.sets.find((s) => s.id === setId)
+    if (!set) throw new Error('세트를 찾을 수 없습니다.')
+    if (set.status !== 'in_progress') throw new Error('진행 중인 세트만 되돌릴 수 있습니다.')
+    if (set.events.length === 0) throw new Error('되돌릴 이벤트가 없습니다.')
+
+    const lastEvent = set.events[set.events.length - 1]
+    set.events.pop()
+    set.score[lastEvent.scoringTeamId] = Math.max(0, (set.score[lastEvent.scoringTeamId] ?? 0) - 1)
+    set.servingTeamId = lastEvent.servingTeamIdBefore
+    set.rotation[set.teamIds[0]] = lastEvent.servingPositionBefore
+    if (lastEvent.rotationAppliedToTeamId) {
+      const prevPos = lastEvent.servingPositionBefore
+      set.rotation[lastEvent.rotationAppliedToTeamId] = prevPos
+    }
+    updated = set
+  })
+  if (!updated) throw new Error('되돌리기 실패')
+  return updated
+}
+
+export async function forceEndSet(setId: string): Promise<SetRecord> {
+  let updated: SetRecord | null = null
+  updateStore((draft) => {
+    const set = draft.sets.find((s) => s.id === setId)
+    if (!set) throw new Error('세트를 찾을 수 없습니다.')
+    if (set.status !== 'in_progress') throw new Error('진행 중인 세트만 종료할 수 있습니다.')
+
+    const [teamAId, teamBId] = set.teamIds
+    const scoreA = set.score[teamAId] ?? 0
+    const scoreB = set.score[teamBId] ?? 0
+
+    set.winnerTeamId = scoreA >= scoreB ? teamAId : teamBId
+    set.status = 'completed'
+    updated = set
+  })
+  if (!updated) throw new Error('세트 종료 실패')
+  return updated
+}
+
+export async function abortMatch(matchId: string): Promise<void> {
+  updateStore((draft) => {
+    const match = draft.matches.find((m) => m.id === matchId)
+    if (!match) throw new Error('매치를 찾을 수 없습니다.')
+    match.status = 'completed'
+    // Also complete any in-progress sets
+    for (const set of draft.sets) {
+      if (set.matchId === matchId && set.status === 'in_progress') {
+        const [teamAId, teamBId] = set.teamIds
+        const scoreA = set.score[teamAId] ?? 0
+        const scoreB = set.score[teamBId] ?? 0
+        set.winnerTeamId = scoreA >= scoreB ? teamAId : teamBId
+        set.status = 'completed'
+      }
+    }
+  })
+}
+
+export async function updateSetPositions(
+  setId: string,
+  positionAssignments: TeamPositionAssignments,
+): Promise<void> {
+  updateStore((draft) => {
+    // Remove existing snapshots for this set
+    draft.setPositions = draft.setPositions.filter((s) => s.setId !== setId)
+
+    const set = draft.sets.find((s) => s.id === setId)
+    if (!set) throw new Error('세트를 찾을 수 없습니다.')
+
+    const matchTeams = draft.matchTeams.filter((t) => t.matchId === set.matchId)
+    const teamAId = matchTeams[0]?.id
+    const teamBId = matchTeams[1]?.id
+
+    for (const a of positionAssignments.teamA) {
+      draft.setPositions.push({
+        id: createId('sps'),
+        setId,
+        matchId: set.matchId,
+        teamId: teamAId,
+        profileId: a.profileId,
+        positionNo: a.positionNo,
+        createdAt: nowIso(),
+      })
+    }
+    for (const a of positionAssignments.teamB) {
+      draft.setPositions.push({
+        id: createId('sps'),
+        setId,
+        matchId: set.matchId,
+        teamId: teamBId,
+        profileId: a.profileId,
+        positionNo: a.positionNo,
+        createdAt: nowIso(),
+      })
+    }
+  })
+}
+
 export async function recordRally(payload: {
   setId: string
   scoringTeamId: string
