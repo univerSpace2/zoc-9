@@ -1345,26 +1345,20 @@ function finalizeMatchState(draft: LocalDataStore, matchId: string): void {
   }
 }
 
-export async function undoLastRally(setId: string): Promise<SetRecord> {
+export async function decrementScore(setId: string, teamId: string): Promise<SetRecord> {
   let updated: SetRecord | null = null
   updateStore((draft) => {
     const set = draft.sets.find((s) => s.id === setId)
     if (!set) throw new Error('세트를 찾을 수 없습니다.')
-    if (set.status !== 'in_progress') throw new Error('진행 중인 세트만 되돌릴 수 있습니다.')
-    if (set.events.length === 0) throw new Error('되돌릴 이벤트가 없습니다.')
+    if (set.status !== 'in_progress') throw new Error('진행 중인 세트만 수정할 수 있습니다.')
 
-    const lastEvent = set.events[set.events.length - 1]
-    set.events.pop()
-    set.score[lastEvent.scoringTeamId] = Math.max(0, (set.score[lastEvent.scoringTeamId] ?? 0) - 1)
-    set.servingTeamId = lastEvent.servingTeamIdBefore
-    set.rotation[set.teamIds[0]] = lastEvent.servingPositionBefore
-    if (lastEvent.rotationAppliedToTeamId) {
-      const prevPos = lastEvent.servingPositionBefore
-      set.rotation[lastEvent.rotationAppliedToTeamId] = prevPos
-    }
+    const currentScore = set.score[teamId] ?? 0
+    if (currentScore <= 0) throw new Error('점수가 0 이하입니다.')
+
+    set.score[teamId] = currentScore - 1
     updated = set
   })
-  if (!updated) throw new Error('되돌리기 실패')
+  if (!updated) throw new Error('점수 감소 실패')
   return updated
 }
 

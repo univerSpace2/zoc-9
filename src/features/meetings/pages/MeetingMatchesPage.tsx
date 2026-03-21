@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, Plus, Timer, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useForm, useWatch } from 'react-hook-form'
 import { Link, useParams } from 'react-router-dom'
@@ -9,17 +9,13 @@ import { z } from 'zod'
 import { PageFrame } from '@/components/layout/PageFrame'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { MemberCapsuleSelect } from '@/components/ui/MemberCapsuleSelect'
-import { PositionPickerSheet } from '@/components/ui/PositionPickerSheet'
+import { DualCourtDragPicker } from '@/components/ui/DualCourtDragPicker'
 import { SelectField } from '@/components/ui/SelectField'
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch'
 import {
-  assignMemberPositionWithSwap,
   buildOrderedPlayerIdsByPosition,
-  computeDisabledMemberIds,
   isCompleteTeamPositionAssignment,
   normalizeTeamPositionMap,
-  removeMemberFromTeamSelection,
   stripRefereeFromTeamPositionMaps,
   stripRefereeFromTeamSelections,
   type PositionMap,
@@ -150,11 +146,6 @@ export function MeetingMatchesPage() {
   const { groupId, meetingId } = useParams<{ groupId: string; meetingId: string }>()
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
-  const [positionPickerState, setPositionPickerState] = useState<{
-    open: boolean
-    team: 'A' | 'B'
-    memberId: string
-  } | null>(null)
   const [formOpen, setFormOpen] = useState(false)
 
   const meetingQuery = useQuery({
@@ -263,31 +254,6 @@ export function MeetingMatchesPage() {
     id: member.profileId,
     name: member.profile.name,
   }))
-
-  const memberNameMap = useMemo(
-    () => new Map((membersQuery.data ?? []).map((member) => [member.profileId, member.profile.name])),
-    [membersQuery.data],
-  )
-  const memberIds = memberOptions.map((member) => member.id)
-
-  const normalizedTeamAPositionMap = normalizeTeamPositionMap(teamASelection, teamAPositionMap, selectedTeamSize)
-  const normalizedTeamBPositionMap = normalizeTeamPositionMap(teamBSelection, teamBPositionMap, selectedTeamSize)
-
-  const teamADisabledIds = computeDisabledMemberIds({
-    memberIds,
-    selectedIds: teamASelection,
-    opponentSelectedIds: teamBSelection,
-    selectedRefereeId: selectedRefereeId || undefined,
-    teamSize: selectedTeamSize,
-  })
-
-  const teamBDisabledIds = computeDisabledMemberIds({
-    memberIds,
-    selectedIds: teamBSelection,
-    opponentSelectedIds: teamASelection,
-    selectedRefereeId: selectedRefereeId || undefined,
-    teamSize: selectedTeamSize,
-  })
 
   useEffect(() => {
     const nextTeamASelection = teamASelection.slice(0, selectedTeamSize)
@@ -406,126 +372,7 @@ export function MeetingMatchesPage() {
     })
   }
 
-  const handlePressTeamMember = (team: 'A' | 'B', profileId: string) => {
-    const selected = team === 'A' ? teamASelection.includes(profileId) : teamBSelection.includes(profileId)
-    const disabled = team === 'A' ? teamADisabledIds.has(profileId) : teamBDisabledIds.has(profileId)
-
-    if (!selected && disabled) {
-      return
-    }
-
-    setPositionPickerState({
-      open: true,
-      team,
-      memberId: profileId,
-    })
-  }
-
-  const applyPositionSelection = (positionNo: number) => {
-    if (!positionPickerState) {
-      return
-    }
-
-    if (positionPickerState.team === 'A') {
-      const next = assignMemberPositionWithSwap({
-        selectedIds: teamASelection,
-        positionMap: teamAPositionMap,
-        memberId: positionPickerState.memberId,
-        positionNo,
-        teamSize: selectedTeamSize,
-      })
-
-      setValue('teamAPlayerIds', next.selectedIds, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-      setValue('teamAPositionMap', next.positionMap, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-    } else {
-      const next = assignMemberPositionWithSwap({
-        selectedIds: teamBSelection,
-        positionMap: teamBPositionMap,
-        memberId: positionPickerState.memberId,
-        positionNo,
-        teamSize: selectedTeamSize,
-      })
-
-      setValue('teamBPlayerIds', next.selectedIds, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-      setValue('teamBPositionMap', next.positionMap, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-    }
-  }
-
-  const handleClearMember = () => {
-    if (!positionPickerState) {
-      return
-    }
-
-    if (positionPickerState.team === 'A') {
-      const next = removeMemberFromTeamSelection({
-        selectedIds: teamASelection,
-        positionMap: teamAPositionMap,
-        memberId: positionPickerState.memberId,
-        teamSize: selectedTeamSize,
-      })
-
-      setValue('teamAPlayerIds', next.selectedIds, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-      setValue('teamAPositionMap', next.positionMap, {
-        shouldDirty: true,
-        shouldValidate: true,
-      })
-      return
-    }
-
-    const next = removeMemberFromTeamSelection({
-      selectedIds: teamBSelection,
-      positionMap: teamBPositionMap,
-      memberId: positionPickerState.memberId,
-      teamSize: selectedTeamSize,
-    })
-
-    setValue('teamBPlayerIds', next.selectedIds, {
-      shouldDirty: true,
-      shouldValidate: true,
-    })
-    setValue('teamBPositionMap', next.positionMap, {
-      shouldDirty: true,
-      shouldValidate: true,
-    })
-  }
-
   const meetingCompleted = meetingQuery.data?.status === 'completed'
-
-  const pickerSelected = positionPickerState?.team === 'A'
-    ? teamASelection.includes(positionPickerState.memberId)
-    : positionPickerState?.team === 'B'
-      ? teamBSelection.includes(positionPickerState.memberId)
-      : false
-
-  const pickerPositionMap = positionPickerState?.team === 'A' ? normalizedTeamAPositionMap : normalizedTeamBPositionMap
-  const pickerSelectedPositionNo = positionPickerState ? pickerPositionMap[positionPickerState.memberId] : undefined
-
-  let pickerOccupancyByPosition: Record<number, string> = {}
-  if (positionPickerState) {
-    const map = positionPickerState.team === 'A' ? normalizedTeamAPositionMap : normalizedTeamBPositionMap
-    const occupancy: Record<number, string> = {}
-
-    for (const [memberId, positionNo] of Object.entries(map)) {
-      occupancy[positionNo] = memberNameMap.get(memberId) ?? '멤버'
-    }
-
-    pickerOccupancyByPosition = occupancy
-  }
 
   const teamAErrorMessage =
     typeof errors.teamAPlayerIds?.message === 'string'
@@ -813,10 +660,27 @@ export function MeetingMatchesPage() {
                         onChange={(value) => setValue('firstServingTeamIndex', Number(value), { shouldDirty: true, shouldValidate: true })}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <MemberCapsuleSelect testId="team-a-capsules" title="팀 A 멤버" members={memberOptions} selectedIds={teamASelection} disabledIds={teamADisabledIds} maxSelectable={selectedTeamSize} teamTone="a" onPressMember={(id) => handlePressTeamMember('A', id)} positionByMemberId={normalizedTeamAPositionMap} error={teamAErrorMessage} />
-                      <MemberCapsuleSelect testId="team-b-capsules" title="팀 B 멤버" members={memberOptions} selectedIds={teamBSelection} disabledIds={teamBDisabledIds} maxSelectable={selectedTeamSize} teamTone="b" onPressMember={(id) => handlePressTeamMember('B', id)} positionByMemberId={normalizedTeamBPositionMap} error={teamBErrorMessage} />
-                    </div>
+                    <DualCourtDragPicker
+                      teamSize={selectedTeamSize as 2 | 3 | 4}
+                      members={memberOptions}
+                      teamAName="A팀"
+                      teamBName="B팀"
+                      teamAPlayerIds={teamASelection}
+                      teamBPlayerIds={teamBSelection}
+                      teamAPositionMap={teamAPositionMap}
+                      teamBPositionMap={teamBPositionMap}
+                      disabledIds={new Set([...(selectedRefereeId ? [selectedRefereeId] : [])])}
+                      onChangeA={(ids, map) => {
+                        setValue('teamAPlayerIds', ids, { shouldDirty: true, shouldValidate: true })
+                        setValue('teamAPositionMap', map, { shouldDirty: true, shouldValidate: true })
+                      }}
+                      onChangeB={(ids, map) => {
+                        setValue('teamBPlayerIds', ids, { shouldDirty: true, shouldValidate: true })
+                        setValue('teamBPositionMap', map, { shouldDirty: true, shouldValidate: true })
+                      }}
+                      errorA={teamAErrorMessage}
+                      errorB={teamBErrorMessage}
+                    />
                     <ToggleSwitch label="듀스 적용" description={`현재: ${deuceEnabled ? '적용' : '미적용'}`} checked={deuceEnabled} onChange={(c) => setValue('deuce', c, { shouldDirty: true, shouldValidate: true })} />
                     <Input label="벌칙 (선택)" error={errors.penaltyText?.message} {...register('penaltyText')} />
                     {createMatchMutation.error ? <p className="text-sm text-danger">{(createMatchMutation.error as Error).message}</p> : null}
@@ -831,22 +695,6 @@ export function MeetingMatchesPage() {
           )
         : null}
 
-      <PositionPickerSheet
-        open={Boolean(positionPickerState?.open)}
-        title={
-          positionPickerState
-            ? `${positionPickerState.team === 'A' ? '팀 A' : '팀 B'} · ${memberNameMap.get(positionPickerState.memberId) ?? '멤버'} 포지션`
-            : '포지션 선택'
-        }
-        maxPosition={selectedTeamSize}
-        selectedPositionNo={pickerSelectedPositionNo}
-        occupancyByPosition={pickerOccupancyByPosition}
-        allowClear={Boolean(positionPickerState && pickerSelected)}
-        clearLabel="선택 해제"
-        onSelect={applyPositionSelection}
-        onClear={handleClearMember}
-        onClose={() => setPositionPickerState(null)}
-      />
     </PageFrame>
   )
 }

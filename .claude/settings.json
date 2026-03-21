@@ -3,7 +3,11 @@
     "allow": [
       "Bash(grep -l \"rpc_accept_invite\\\\|rpc_decline_invite\\\\|rpc_cancel_invite\\\\|rpc_reissue_invite\\\\|rpc_get_invite_by_token\\\\|rpc_list_received_invites\" /Users/universpace/projects/ZOC9/supabase/migrations/*.sql)",
       "Bash(grep -n \"rpc_accept_invite\\\\|rpc_reissue_invite\" /Users/universpace/projects/ZOC9/supabase/migrations/*.sql)",
-      "Bash(grep -n \"rpc_complete_meeting\\\\|rpc.*meeting\" /Users/universpace/projects/ZOC9/supabase/migrations/*.sql)"
+      "Bash(grep -n \"rpc_complete_meeting\\\\|rpc.*meeting\" /Users/universpace/projects/ZOC9/supabase/migrations/*.sql)",
+      "Bash(curl -L -o /tmp/stitch_position_screenshot.png \"https://lh3.googleusercontent.com/aida/ADBb0uiz4yigL_2YIVndXmY3seNvUnLGvKiTWZQHuPzacPr0J3DViU0FatJV2cgd_1yuS8XA4APhtILLyNVnTQvA5CwXFdC89ceJMelyrU70Fu7ZxDF5n_RYJuR9xORNGpsIkkGjvh6vayptMFV5aBcEixqZf-D0d4-BaGLB_2i3PsZsSB0ov65mkqnhtyP5OjuMSLFXBrpzB-UscjmREg_rK9X1DE3oUqT9hRGpiQlDaLAFm3lmlw4zwv5y7nk\")",
+      "Bash(curl -L -o /tmp/stitch_position_html.html \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzU4ODhlYmNkNGM2ZjRmMmI4MmEwMzdkN2Q4NzFmZmZkEgsSBxDU6qqb-hwYAZIBIwoKcHJvamVjdF9pZBIVQhM0MDY1MjUxMzk3NDk0MjkxMTQy&filename=&opi=89354086\")",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)"
     ]
   }
 }

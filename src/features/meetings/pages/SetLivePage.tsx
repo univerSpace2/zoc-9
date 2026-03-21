@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, X } from 'lucide-react'
-import { DragPositionList } from '@/components/ui/DragPositionList'
+import { CourtView } from '@/components/ui/CourtPositionPicker'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
@@ -13,16 +13,19 @@ import { RallyLog } from '@/features/meetings/components/RallyLog'
 import { SelectField } from '@/components/ui/SelectField'
 import { WinnerBadge } from '@/components/ui/WinnerBadge'
 import {
+  assignMemberPositionWithSwap,
   isCompleteTeamPositionAssignment,
   normalizeTeamPositionMap,
+  toTeamPositionAssignments,
   type PositionMap,
 } from '@/features/meetings/lib/match-form'
 import { enqueueRallyEvent, listQueuedRallyEvents, removeQueuedRallyEvent } from '@/lib/offline-queue'
 import { applyRally } from '@/lib/rules-engine'
-import { createId, nowIso } from '@/lib/utils'
+import { cn, createId, nowIso } from '@/lib/utils'
 import { useVisibilityAndOnlineSync } from '@/lib/visibility-sync'
 import {
   apiAbortMatch,
+  apiDecrementScore,
   apiEditCompletedSet,
   apiForceEndSet,
   apiGetMeeting,
@@ -31,7 +34,6 @@ import {
   apiListMembers,
   apiRecordRally,
   apiStartSet,
-  apiUndoLastRally,
   apiUpdateSetPositions,
   queryKeys,
 } from '@/services/api'
@@ -87,11 +89,13 @@ export function SetLivePage() {
   const [startConfirmOpen, setStartConfirmOpen] = useState(false)
   const [startConfirmError, setStartConfirmError] = useState<string | null>(null)
   const [confirmServingTeamId, setConfirmServingTeamId] = useState<string>('')
-  const [confirmTeamAOrder, setConfirmTeamAOrder] = useState<string[]>([])
-  const [confirmTeamBOrder, setConfirmTeamBOrder] = useState<string[]>([])
+  const [confirmTeamAPositions, setConfirmTeamAPositions] = useState<PositionMap>({})
+  const [confirmTeamBPositions, setConfirmTeamBPositions] = useState<PositionMap>({})
   const [showPositionChange, setShowPositionChange] = useState(false)
-  const [posChangeTeamAOrder, setPosChangeTeamAOrder] = useState<string[]>([])
-  const [posChangeTeamBOrder, setPosChangeTeamBOrder] = useState<string[]>([])
+  const [posChangeTeamAPositions, setPosChangeTeamAPositions] = useState<PositionMap>({})
+  const [posChangeTeamBPositions, setPosChangeTeamBPositions] = useState<PositionMap>({})
+  const [confirmSelectedMember, setConfirmSelectedMember] = useState<{ team: 'a' | 'b'; id: string } | null>(null)
+  const [posChangeSelectedMember, setPosChangeSelectedMember] = useState<{ team: 'a' | 'b'; id: string } | null>(null)
   const [showEndSetConfirm, setShowEndSetConfirm] = useState(false)
   const [showAbortConfirm, setShowAbortConfirm] = useState(false)
 
@@ -325,10 +329,10 @@ export function SetLivePage() {
     },
   })
 
-  const undoMutation = useMutation({
-    mutationFn: async () => {
+  const decrementMutation = useMutation({
+    mutationFn: async (teamId: string) => {
       if (!setId) throw new Error('세트를 찾을 수 없습니다.')
-      return apiUndoLastRally(setId)
+      return apiDecrementScore(setId, teamId)
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.set(setId ?? '') })
@@ -365,11 +369,9 @@ export function SetLivePage() {
   const positionChangeMutation = useMutation({
     mutationFn: async () => {
       if (!setId) throw new Error('세트를 찾을 수 없습니다.')
-      const orderedToAssignments = (orderedIds: string[]) =>
-        orderedIds.map((profileId, idx) => ({ profileId, positionNo: idx + 1 }))
       const assignments: TeamPositionAssignments = {
-        teamA: orderedToAssignments(posChangeTeamAOrder),
-        teamB: orderedToAssignments(posChangeTeamBOrder),
+        teamA: toTeamPositionAssignments(teamAMemberIds, posChangeTeamAPositions, set.teamSize),
+        teamB: toTeamPositionAssignments(teamBMemberIds, posChangeTeamBPositions, set.teamSize),
       }
       return apiUpdateSetPositions(setId, assignments)
     },
@@ -526,9 +528,6 @@ export function SetLivePage() {
       ? teamRosterMap.get(set.servingTeamId)?.find((player) => player.positionNo === servingPosition)?.name
       : undefined
 
-  const posMapToOrdered = (ids: string[], posMap: PositionMap) =>
-    [...ids].sort((a, b) => (posMap[a] ?? 99) - (posMap[b] ?? 99))
-
   const openStartConfirmation = () => {
     const previousSet = sets.find((item) => item.setNo === set.setNo - 1)
     if (!previousSet || (previousSet.status !== 'completed' && previousSet.status !== 'ignored')) {
@@ -538,8 +537,9 @@ export function SetLivePage() {
 
     const resolved = resolvePositionMapsForTargetSet(set.id, set.setNo, set.teamSize)
     setConfirmServingTeamId(selectedServingTeamId || set.initialServingTeamId)
-    setConfirmTeamAOrder(posMapToOrdered(teamAMemberIds, resolved.teamAPositionMap))
-    setConfirmTeamBOrder(posMapToOrdered(teamBMemberIds, resolved.teamBPositionMap))
+    setConfirmTeamAPositions(resolved.teamAPositionMap)
+    setConfirmTeamBPositions(resolved.teamBPositionMap)
+    setConfirmSelectedMember(null)
     setStartConfirmError(null)
     setStartConfirmOpen(true)
   }
@@ -547,22 +547,22 @@ export function SetLivePage() {
   const handleConfirmStart = () => {
     setStartConfirmError(null)
 
-    if (confirmTeamAOrder.length < set.teamSize) {
+    const teamAMap = normalizeTeamPositionMap(teamAMemberIds, confirmTeamAPositions, set.teamSize)
+    const teamBMap = normalizeTeamPositionMap(teamBMemberIds, confirmTeamBPositions, set.teamSize)
+
+    if (!isCompleteTeamPositionAssignment(teamAMemberIds, teamAMap, set.teamSize)) {
       setStartConfirmError('A팀 포지션을 모두 지정하세요.')
       return
     }
 
-    if (confirmTeamBOrder.length < set.teamSize) {
+    if (!isCompleteTeamPositionAssignment(teamBMemberIds, teamBMap, set.teamSize)) {
       setStartConfirmError('B팀 포지션을 모두 지정하세요.')
       return
     }
 
-    const orderedToAssignments = (orderedIds: string[]) =>
-      orderedIds.map((profileId, idx) => ({ profileId, positionNo: idx + 1 }))
-
     const assignments: TeamPositionAssignments = {
-      teamA: orderedToAssignments(confirmTeamAOrder),
-      teamB: orderedToAssignments(confirmTeamBOrder),
+      teamA: toTeamPositionAssignments(teamAMemberIds, teamAMap, set.teamSize),
+      teamB: toTeamPositionAssignments(teamBMemberIds, teamBMap, set.teamSize),
     }
 
     startMutation.mutate({
@@ -624,10 +624,10 @@ export function SetLivePage() {
             <div className="mt-4 flex w-full gap-2">
               <button
                 type="button"
-                onClick={() => undoMutation.mutate()}
-                disabled={!canScore || set.events.length === 0 || undoMutation.isPending}
+                onClick={() => decrementMutation.mutate(teamAId)}
+                disabled={!canScore || teamAScore === 0 || decrementMutation.isPending}
                 className="flex h-14 flex-1 items-center justify-center rounded-xl bg-surface-300 text-surface-700 transition active:scale-90 disabled:opacity-40"
-                aria-label={`되돌리기`}
+                aria-label={`${teamAName} 감점`}
               >
                 <span className="text-xl font-bold">−</span>
               </button>
@@ -678,10 +678,10 @@ export function SetLivePage() {
             <div className="mt-4 flex w-full gap-2">
               <button
                 type="button"
-                onClick={() => undoMutation.mutate()}
-                disabled={!canScore || set.events.length === 0 || undoMutation.isPending}
+                onClick={() => decrementMutation.mutate(teamBId)}
+                disabled={!canScore || teamBScore === 0 || decrementMutation.isPending}
                 className="flex h-14 flex-1 items-center justify-center rounded-xl bg-surface-300 text-surface-700 transition active:scale-90 disabled:opacity-40"
-                aria-label={`되돌리기`}
+                aria-label={`${teamBName} 감점`}
               >
                 <span className="text-xl font-bold">−</span>
               </button>
@@ -830,11 +830,9 @@ export function SetLivePage() {
               type="button"
               onClick={() => {
                 setShowPositionChange(true)
-                // Convert positionMap to ordered array (sorted by position number)
-                const toOrdered = (ids: string[], posMap: PositionMap) =>
-                  [...ids].sort((a, b) => (posMap[a] ?? 99) - (posMap[b] ?? 99))
-                setPosChangeTeamAOrder(toOrdered(teamAMemberIds, resolvedCurrentSetPositions.teamAPositionMap))
-                setPosChangeTeamBOrder(toOrdered(teamBMemberIds, resolvedCurrentSetPositions.teamBPositionMap))
+                setPosChangeTeamAPositions({ ...resolvedCurrentSetPositions.teamAPositionMap })
+                setPosChangeTeamBPositions({ ...resolvedCurrentSetPositions.teamBPositionMap })
+                setPosChangeSelectedMember(null)
               }}
               className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-surface-300/50 py-4 transition hover:bg-surface-300"
             >
@@ -932,23 +930,84 @@ export function SetLivePage() {
                     disabled={startMutation.isPending}
                   />
 
-                  <p className="text-xs text-surface-600">드래그하여 포지션 순서를 변경하세요. 위에서부터 1번입니다.</p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <DragPositionList
-                      title={teamAName}
-                      teamTone="a"
-                      members={teamAMembers}
-                      orderedIds={confirmTeamAOrder}
-                      onChange={setConfirmTeamAOrder}
-                    />
-                    <DragPositionList
-                      title={teamBName}
-                      teamTone="b"
-                      members={teamBMembers}
-                      orderedIds={confirmTeamBOrder}
-                      onChange={setConfirmTeamBOrder}
-                    />
+                  {/* Dual Court */}
+                  <div className="relative rounded-xl bg-[#d2b48c] p-2">
+                    <div className="relative aspect-[2/1] overflow-hidden rounded-lg bg-[#2e8b57]">
+                      <div className="absolute inset-[6%] border-2 border-white/60" />
+                      <div className="absolute top-[6%] bottom-[6%] left-1/2 w-[3px] -translate-x-1/2 bg-[#333]" />
+                      <div className="absolute top-[5%] left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-[#333]" />
+                      <div className="absolute bottom-[5%] left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-[#333]" />
+                      {/* Team labels */}
+                      <span className="absolute top-1 left-3 text-[9px] font-black text-white/40">{teamAName}</span>
+                      <span className="absolute top-1 right-3 text-[9px] font-black text-white/40">{teamBName}</span>
+                      <CourtView
+                        teamTone="a" teamSize={set.teamSize}
+                        positionMap={confirmTeamAPositions}
+                        nameMap={new Map(teamAMembers.map((m) => [m.id, m.name]))}
+                        activeIds={teamAMemberIds}
+                        selectedMemberId={confirmSelectedMember?.team === 'a' ? confirmSelectedMember.id : null}
+                        onSlotTap={(posNo) => {
+                          if (!confirmSelectedMember || confirmSelectedMember.team !== 'a') return
+                          const result = assignMemberPositionWithSwap({ selectedIds: teamAMemberIds, positionMap: confirmTeamAPositions, memberId: confirmSelectedMember.id, positionNo: posNo, teamSize: set.teamSize })
+                          setConfirmTeamAPositions(result.positionMap)
+                          setConfirmSelectedMember(null)
+                        }}
+                      />
+                      <CourtView
+                        teamTone="b" teamSize={set.teamSize}
+                        positionMap={confirmTeamBPositions}
+                        nameMap={new Map(teamBMembers.map((m) => [m.id, m.name]))}
+                        activeIds={teamBMemberIds}
+                        selectedMemberId={confirmSelectedMember?.team === 'b' ? confirmSelectedMember.id : null}
+                        onSlotTap={(posNo) => {
+                          if (!confirmSelectedMember || confirmSelectedMember.team !== 'b') return
+                          const result = assignMemberPositionWithSwap({ selectedIds: teamBMemberIds, positionMap: confirmTeamBPositions, memberId: confirmSelectedMember.id, positionNo: posNo, teamSize: set.teamSize })
+                          setConfirmTeamBPositions(result.positionMap)
+                          setConfirmSelectedMember(null)
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {/* Member lists */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-[#516200]">{teamAName}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {teamAMembers.map((m) => {
+                          const pos = confirmTeamAPositions[m.id]
+                          return (
+                            <button key={m.id} type="button"
+                              onClick={() => setConfirmSelectedMember(confirmSelectedMember?.id === m.id ? null : { team: 'a', id: m.id })}
+                              className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold transition',
+                                confirmSelectedMember?.id === m.id ? 'bg-[#d1fc00] border-[#516200] text-[#3c4a00]' : 'bg-[#d1fc00]/20 border-[#516200]/15 text-[#516200]'
+                              )}
+                            >
+                              {pos && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#516200] text-[9px] text-white">{pos}</span>}
+                              {m.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-[#0059b6]">{teamBName}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {teamBMembers.map((m) => {
+                          const pos = confirmTeamBPositions[m.id]
+                          return (
+                            <button key={m.id} type="button"
+                              onClick={() => setConfirmSelectedMember(confirmSelectedMember?.id === m.id ? null : { team: 'b', id: m.id })}
+                              className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold transition',
+                                confirmSelectedMember?.id === m.id ? 'bg-[#0059b6]/20 border-[#0059b6] text-[#0059b6]' : 'bg-[#0059b6]/10 border-[#0059b6]/15 text-[#0059b6]'
+                              )}
+                            >
+                              {pos && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#0059b6] text-[9px] text-white">{pos}</span>}
+                              {m.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {startConfirmError ? <p className="text-sm font-semibold text-danger">{startConfirmError}</p> : null}
@@ -986,22 +1045,82 @@ export function SetLivePage() {
                   </button>
                 </div>
                 <div className="max-h-[72vh] space-y-4 overflow-y-auto px-4 pb-2">
-                  <p className="text-xs text-surface-600">드래그하여 포지션 순서를 변경하세요. 위에서부터 1번입니다.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <DragPositionList
-                      title={teamAName}
-                      teamTone="a"
-                      members={teamAMembers}
-                      orderedIds={posChangeTeamAOrder}
-                      onChange={setPosChangeTeamAOrder}
-                    />
-                    <DragPositionList
-                      title={teamBName}
-                      teamTone="b"
-                      members={teamBMembers}
-                      orderedIds={posChangeTeamBOrder}
-                      onChange={setPosChangeTeamBOrder}
-                    />
+                  {/* Dual Court */}
+                  <div className="relative rounded-xl bg-[#d2b48c] p-2">
+                    <div className="relative aspect-[2/1] overflow-hidden rounded-lg bg-[#2e8b57]">
+                      <div className="absolute inset-[6%] border-2 border-white/60" />
+                      <div className="absolute top-[6%] bottom-[6%] left-1/2 w-[3px] -translate-x-1/2 bg-[#333]" />
+                      <div className="absolute top-[5%] left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-[#333]" />
+                      <div className="absolute bottom-[5%] left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-[#333]" />
+                      <span className="absolute top-1 left-3 text-[9px] font-black text-white/40">{teamAName}</span>
+                      <span className="absolute top-1 right-3 text-[9px] font-black text-white/40">{teamBName}</span>
+                      <CourtView
+                        teamTone="a" teamSize={set.teamSize}
+                        positionMap={posChangeTeamAPositions}
+                        nameMap={new Map(teamAMembers.map((m) => [m.id, m.name]))}
+                        activeIds={teamAMemberIds}
+                        selectedMemberId={posChangeSelectedMember?.team === 'a' ? posChangeSelectedMember.id : null}
+                        onSlotTap={(posNo) => {
+                          if (!posChangeSelectedMember || posChangeSelectedMember.team !== 'a') return
+                          const result = assignMemberPositionWithSwap({ selectedIds: teamAMemberIds, positionMap: posChangeTeamAPositions, memberId: posChangeSelectedMember.id, positionNo: posNo, teamSize: set.teamSize })
+                          setPosChangeTeamAPositions(result.positionMap)
+                          setPosChangeSelectedMember(null)
+                        }}
+                      />
+                      <CourtView
+                        teamTone="b" teamSize={set.teamSize}
+                        positionMap={posChangeTeamBPositions}
+                        nameMap={new Map(teamBMembers.map((m) => [m.id, m.name]))}
+                        activeIds={teamBMemberIds}
+                        selectedMemberId={posChangeSelectedMember?.team === 'b' ? posChangeSelectedMember.id : null}
+                        onSlotTap={(posNo) => {
+                          if (!posChangeSelectedMember || posChangeSelectedMember.team !== 'b') return
+                          const result = assignMemberPositionWithSwap({ selectedIds: teamBMemberIds, positionMap: posChangeTeamBPositions, memberId: posChangeSelectedMember.id, positionNo: posNo, teamSize: set.teamSize })
+                          setPosChangeTeamBPositions(result.positionMap)
+                          setPosChangeSelectedMember(null)
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-[#516200]">{teamAName}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {teamAMembers.map((m) => {
+                          const pos = posChangeTeamAPositions[m.id]
+                          return (
+                            <button key={m.id} type="button"
+                              onClick={() => setPosChangeSelectedMember(posChangeSelectedMember?.id === m.id ? null : { team: 'a', id: m.id })}
+                              className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold transition',
+                                posChangeSelectedMember?.id === m.id ? 'bg-[#d1fc00] border-[#516200] text-[#3c4a00]' : 'bg-[#d1fc00]/20 border-[#516200]/15 text-[#516200]'
+                              )}
+                            >
+                              {pos && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#516200] text-[9px] text-white">{pos}</span>}
+                              {m.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-[#0059b6]">{teamBName}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {teamBMembers.map((m) => {
+                          const pos = posChangeTeamBPositions[m.id]
+                          return (
+                            <button key={m.id} type="button"
+                              onClick={() => setPosChangeSelectedMember(posChangeSelectedMember?.id === m.id ? null : { team: 'b', id: m.id })}
+                              className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold transition',
+                                posChangeSelectedMember?.id === m.id ? 'bg-[#0059b6]/20 border-[#0059b6] text-[#0059b6]' : 'bg-[#0059b6]/10 border-[#0059b6]/15 text-[#0059b6]'
+                              )}
+                            >
+                              {pos && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#0059b6] text-[9px] text-white">{pos}</span>}
+                              {m.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
                   {positionChangeMutation.error && (
                     <p className="text-sm font-semibold text-danger">{(positionChangeMutation.error as Error).message}</p>

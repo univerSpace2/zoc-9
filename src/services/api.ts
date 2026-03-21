@@ -58,7 +58,7 @@ import {
   recordRally,
   registerUser,
   startSetByIdWithServingTeam,
-  undoLastRally,
+  decrementScore,
   updateSetPositions,
   abortMatch,
   deleteMeeting,
@@ -1408,13 +1408,13 @@ export async function apiEditCompletedSet(
   return refreshed.set
 }
 
-export async function apiUndoLastRally(setId: string): Promise<SetRecord> {
+export async function apiDecrementScore(setId: string, teamId: string): Promise<SetRecord> {
   if (shouldUseLocalData()) {
-    return undoLastRally(setId)
+    return decrementScore(setId, teamId)
   }
 
   const client = ensureSupabase()
-  const { error } = await client.rpc('rpc_undo_last_rally', { set_id: setId })
+  const { error } = await client.rpc('rpc_decrement_score', { set_id: setId, team_id: teamId })
   if (error) throw new Error(error.message)
 
   const refreshed = await apiGetSet(setId)
