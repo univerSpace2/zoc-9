@@ -308,6 +308,9 @@ export function MeetingInfoPage() {
                 {venue.address}
               </a>
             )}
+            {venue.memo && (
+              <p className="text-sm text-surface-600">{venue.memo}</p>
+            )}
             <div className="flex flex-wrap gap-3">
               {venue.reservationRequired && (
                 <div className="flex items-center gap-1.5 text-sm text-surface-600">

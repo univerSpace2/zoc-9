@@ -79,6 +79,7 @@ export interface Venue {
   groupId: string
   name: string
   address?: string
+  memo?: string
   reservationRequired: boolean
   reservationUrl?: string
 }

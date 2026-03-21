@@ -181,6 +181,7 @@ function mapVenueRow(row: Record<string, unknown>): Venue {
     groupId: String(row.group_id),
     name: String(row.name),
     address: row.address ? String(row.address) : undefined,
+    memo: row.memo ? String(row.memo) : undefined,
     reservationRequired: Boolean(row.reservation_required),
     reservationUrl: row.reservation_url ? String(row.reservation_url) : undefined,
   }
@@ -939,7 +940,7 @@ export async function apiGetMeetingDetail(meetingId: string): Promise<MeetingDet
     meeting.venueId
       ? client
           .from('venues')
-          .select('id, group_id, name, address, reservation_required, reservation_url')
+          .select('id, group_id, name, address, memo, reservation_required, reservation_url')
           .eq('id', meeting.venueId)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -1457,7 +1458,7 @@ export async function apiUpdateSetPositions(
   const client = ensureSupabase()
 
   // Delete existing positions for this set
-  const { error: delError } = await client.from('set_position_snapshots').delete().eq('set_id', setId)
+  const { error: delError } = await client.from('set_positions').delete().eq('set_id', setId)
   if (delError) throw new Error(delError.message)
 
   // Get set to find match_id and team_ids
@@ -1486,7 +1487,7 @@ export async function apiUpdateSetPositions(
   ]
 
   if (rows.length > 0) {
-    const { error: insError } = await client.from('set_position_snapshots').insert(rows)
+    const { error: insError } = await client.from('set_positions').insert(rows)
     if (insError) throw new Error(insError.message)
   }
 }
@@ -1923,7 +1924,7 @@ export async function apiListVenues(groupId: string): Promise<Venue[]> {
   const client = ensureSupabase()
   const { data, error } = await client
     .from('venues')
-    .select('id, group_id, name, address, reservation_required, reservation_url')
+    .select('id, group_id, name, address, memo, reservation_required, reservation_url')
     .eq('group_id', groupId)
     .order('created_at', { ascending: false })
 
@@ -1936,7 +1937,7 @@ export async function apiListVenues(groupId: string): Promise<Venue[]> {
 
 export async function apiCreateVenue(
   actorId: string,
-  payload: { groupId: string; name: string; address?: string; reservationRequired: boolean; reservationUrl?: string },
+  payload: { groupId: string; name: string; address?: string; memo?: string; reservationRequired: boolean; reservationUrl?: string },
 ): Promise<Venue> {
   void actorId
 
@@ -1950,6 +1951,7 @@ export async function apiCreateVenue(
       groupId: payload.groupId,
       name: payload.name,
       address: payload.address,
+      memo: payload.memo,
       reservationRequired: payload.reservationRequired,
       reservationUrl: payload.reservationUrl,
     },
@@ -1961,7 +1963,7 @@ export async function apiCreateVenue(
 
   const { data: venueRow, error: venueError } = await client
     .from('venues')
-    .select('id, group_id, name, address, reservation_required, reservation_url')
+    .select('id, group_id, name, address, memo, reservation_required, reservation_url')
     .eq('id', String(venueId))
     .single()
 
@@ -1975,7 +1977,7 @@ export async function apiCreateVenue(
 export async function apiUpdateVenue(
   actorId: string,
   venueId: string,
-  payload: { name: string; address?: string; reservationRequired: boolean; reservationUrl?: string },
+  payload: { name: string; address?: string; memo?: string; reservationRequired: boolean; reservationUrl?: string },
 ): Promise<Venue> {
   void actorId
 
@@ -1989,6 +1991,7 @@ export async function apiUpdateVenue(
       venueId,
       name: payload.name,
       address: payload.address,
+      memo: payload.memo,
       reservationRequired: payload.reservationRequired,
       reservationUrl: payload.reservationUrl,
     },
@@ -2000,7 +2003,7 @@ export async function apiUpdateVenue(
 
   const { data: venueRow, error: venueError } = await client
     .from('venues')
-    .select('id, group_id, name, address, reservation_required, reservation_url')
+    .select('id, group_id, name, address, memo, reservation_required, reservation_url')
     .eq('id', venueId)
     .single()
 

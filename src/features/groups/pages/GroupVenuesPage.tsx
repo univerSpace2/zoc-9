@@ -23,6 +23,7 @@ import { useAuthStore } from '@/store/auth-store'
 const venueSchema = z.object({
   name: z.string().min(2, '구장 이름을 입력하세요.'),
   address: z.string().optional().or(z.literal('')),
+  memo: z.string().optional().or(z.literal('')),
   reservationRequired: z.boolean(),
   reservationUrl: z.string().url('올바른 URL을 입력하세요.').optional().or(z.literal('')),
 })
@@ -51,6 +52,7 @@ export function GroupVenuesPage() {
     defaultValues: {
       name: '',
       address: '',
+      memo: '',
       reservationRequired: false,
       reservationUrl: '',
     },
@@ -66,18 +68,19 @@ export function GroupVenuesPage() {
         groupId,
         name: values.name,
         address: values.address?.trim() || undefined,
+        memo: values.memo?.trim() || undefined,
         reservationRequired: values.reservationRequired,
         reservationUrl: values.reservationUrl?.trim() || undefined,
       })
     },
     onSuccess: async () => {
-      venueForm.reset({ name: '', address: '', reservationRequired: false, reservationUrl: '' })
+      venueForm.reset({ name: '', address: '', memo: '', reservationRequired: false, reservationUrl: '' })
       await queryClient.invalidateQueries({ queryKey: queryKeys.venues(groupId ?? '') })
     },
   })
 
   const updateVenueMutation = useMutation({
-    mutationFn: async (payload: { id: string; name: string; address?: string; reservationRequired: boolean; reservationUrl?: string }) => {
+    mutationFn: async (payload: { id: string; name: string; address?: string; memo?: string; reservationRequired: boolean; reservationUrl?: string }) => {
       if (!user) {
         throw new Error(ERR.LOGIN_REQUIRED)
       }
@@ -85,6 +88,7 @@ export function GroupVenuesPage() {
       return apiUpdateVenue(user.id, payload.id, {
         name: payload.name,
         address: payload.address,
+        memo: payload.memo,
         reservationRequired: payload.reservationRequired,
         reservationUrl: payload.reservationUrl,
       })
@@ -123,6 +127,7 @@ export function GroupVenuesPage() {
           <form className="space-y-2" onSubmit={venueForm.handleSubmit((values) => createVenueMutation.mutate(values))}>
             <Input label="구장 이름" error={venueForm.formState.errors.name?.message} {...venueForm.register('name')} />
             <Input label="주소 (선택)" placeholder="서울시 강남구..." error={venueForm.formState.errors.address?.message} {...venueForm.register('address')} />
+            <Input label="메모 (선택)" placeholder="주차, 준비물 등" error={venueForm.formState.errors.memo?.message} {...venueForm.register('memo')} />
             <label className="flex min-h-[52px] items-center gap-2 rounded-xl bg-surface-100 px-3 py-2 text-base font-semibold">
               <input className="h-5 w-5" type="checkbox" {...venueForm.register('reservationRequired')} /> 예약 필요
             </label>
@@ -157,6 +162,7 @@ export function GroupVenuesPage() {
               {venue.address}
             </a>
           )}
+          {venue.memo && <p className="text-xs text-surface-600">{venue.memo}</p>}
           <p className="text-sm text-surface-700">예약 필요: {venue.reservationRequired ? '예' : '아니오'}</p>
           {venue.reservationUrl ? <p className="break-all text-xs text-surface-600">{venue.reservationUrl}</p> : null}
           {canManageVenues ? (
@@ -171,12 +177,14 @@ export function GroupVenuesPage() {
                   }
 
                   const nextAddress = window.prompt('주소 (비워두면 없음)', venue.address ?? '')
+                  const nextMemo = window.prompt('메모 (비워두면 없음)', venue.memo ?? '')
                   const nextUrl = window.prompt('예약 URL (비워두면 없음)', venue.reservationUrl ?? '')
 
                   updateVenueMutation.mutate({
                     id: venue.id,
                     name: nextName.trim(),
                     address: nextAddress?.trim() || undefined,
+                    memo: nextMemo?.trim() || undefined,
                     reservationRequired: venue.reservationRequired,
                     reservationUrl: nextUrl?.trim() || undefined,
                   })
